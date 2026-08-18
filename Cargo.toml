@@ -1,0 +1,15 @@
+[package]
+name = "ptytest"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2"
+vt100 = "0.16.2"
+
+[dev-dependencies]
+alacritty_terminal = "0.26.0"
+
+[[bin]]
+name = "ptytest-fixture"
+path = "tests/support/ptytest_fixture.rs"

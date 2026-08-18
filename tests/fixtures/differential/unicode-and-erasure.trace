@@ -1,0 +1,6 @@
+# A wide Unicode scalar and a combining scalar are deliberately split across chunks.
+bytes: 41e7
+bytes: 958c
+bytes: cc
+bytes: 8142
+bytes: 1b5b313b32481b5b4b

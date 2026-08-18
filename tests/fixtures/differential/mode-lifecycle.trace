@@ -1,0 +1,4 @@
+# Input-reporting and keyboard mode transitions must preserve normalized state.
+bytes: 1b5b3f32303034681b5b3f31681b3d1b5b3f31303030681b5b3f3130303668
+bytes: 6d6f646573
+bytes: 1b5b3f313030366c1b5b3f313030306c1b3e1b5b3f316c1b5b3f323030346c

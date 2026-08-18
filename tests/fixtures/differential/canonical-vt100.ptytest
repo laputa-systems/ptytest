@@ -1,0 +1,51 @@
+== startup-and-cursor ==
+size: columns=12 rows=3
+cursor: row=0 column=8 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│boot··OK····
+01│···ready····
+02│············
+== alternate-lifecycle ==
+size: columns=12 rows=3
+cursor: row=0 column=7 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│primary·····
+01│············
+02│············
+== unicode-and-erasure ==
+size: columns=8 rows=2
+cursor: row=0 column=1 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│A·······
+01│········
+== resize-explicit-boundaries ==
+size: columns=8 rows=3
+cursor: row=1 column=3 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│abc·····
+01│def·····
+02│········
+== mode-lifecycle ==
+size: columns=12 rows=2
+cursor: row=0 column=5 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│modes·······
+01│············
+== tm2-detach ==
+size: columns=12 rows=2
+cursor: row=0 column=0 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│············
+01│············
+== e-synchronized-redraw ==
+size: columns=12 rows=2
+cursor: row=0 column=0 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│············
+01│············
+== ish-working-directory ==
+size: columns=12 rows=2
+cursor: row=0 column=0 visible=true
+modes: alternate-screen=false application-cursor=false application-keypad=false bracketed-paste=false
+00│············
+01│············

@@ -1,0 +1,4 @@
+# Resize preserves explicit line boundaries. Soft-wrap reflow is documented as
+# outside the primary backend's faithful capability set.
+bytes: 6162630d0a646566
+resize: 8 3

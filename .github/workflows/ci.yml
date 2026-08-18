@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '23 4 * * 1-5'
+
+jobs:
+  test:
+    name: ${{ matrix.os }} PTY acceptance
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-24
+      - name: Record runner and locale evidence
+        run: |
+          rustc -Vv
+          uname -sr
+          locale -a
+      - run: cargo test
+      - run: cargo test -- --test-threads=1
+      - name: Upload PTY failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ptytest-failures-${{ matrix.os }}
+          path: |
+            target/ptytest-failures
+            target/ptytest-differential
+          if-no-files-found: ignore
+
+  differential:
+    name: ${{ matrix.os }} nightly differential terminal corpus
+    if: github.event_name == 'schedule'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-24
+      - name: Record runner and locale evidence
+        run: |
+          rustc -Vv
+          uname -sr
+          locale -a
+      - run: cargo test differential_oracle_matches_canonical_terminal_corpus
+      - run: cargo test differential_oracle_matches_canonical_terminal_corpus -- --test-threads=1
+      - name: Upload differential disagreement evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ptytest-differential-${{ matrix.os }}
+          path: target/ptytest-differential
+          if-no-files-found: ignore
