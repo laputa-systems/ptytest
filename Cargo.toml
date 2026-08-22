@@ -1,7 +1,14 @@
 [package]
-name = "ptytest"
+name = "laputa-ptytest"
+description = "laputa-ptytest"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+
+# Keep the published package name distinct from the Rust crate name used by
+# consumers (`use ptytest::...`).
+[lib]
+name = "ptytest"
 
 [dependencies]
 libc = "0.2"

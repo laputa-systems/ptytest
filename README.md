@@ -10,6 +10,21 @@ It supports macOS and Linux. Windows, browser/GUI automation, shell command
 parsing, async runtimes, and terminal-emulator rendering are intentionally out
 of scope.
 
+## Package and import names
+
+The package is published as `laputa-ptytest`, while its library target is named
+`ptytest`. Add the package name to a consumer's `Cargo.toml`, then import the
+library by its shorter crate name:
+
+```toml
+[dev-dependencies]
+laputa-ptytest = "0.1"
+```
+
+```rust
+use ptytest::PtyTest;
+```
+
 ## Basic test
 
 ```rust,no_run
