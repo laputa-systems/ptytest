@@ -435,7 +435,11 @@ unsafe fn child_exec(master: RawFd, slave: RawFd, error_fd: RawFd, prepared: &Pr
     if unsafe { libc::setsid() } < 0 {
         unsafe { child_error(error_fd, 2) }
     }
-    if unsafe { libc::ioctl(slave, libc::TIOCSCTTY as libc::c_ulong, 0) } < 0 {
+    #[cfg(target_os = "linux")]
+    let tiocsctty = libc::TIOCSCTTY as libc::Ioctl;
+    #[cfg(not(target_os = "linux"))]
+    let tiocsctty = libc::TIOCSCTTY as libc::c_ulong;
+    if unsafe { libc::ioctl(slave, tiocsctty, 0) } < 0 {
         unsafe { child_error(error_fd, 3) }
     }
     let pid = unsafe { libc::getpid() };
