@@ -122,8 +122,9 @@ redacted text environment values, ordered `events.jsonl`, readable events,
 exact `input.bin`/`output.bin`, screen and terminal state, exit status, and
 snapshot expected/actual/diff files when applicable. Raw buffers are capped by
 the scenario and overflow visibly with `TraceLimitExceeded`. A timeout also
-records its requested duration when available, harness elapsed time, last
-observed child status, dimensions, byte counts, and event count. Raw byte files
+records its requested duration when available, elapsed time since the supplied
+deadline was created, last observed child status, dimensions, byte counts, and
+event count. Raw byte files
 are intentionally exact and can contain test secrets.
 
 Replay a bundle without starting the original program:

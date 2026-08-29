@@ -380,6 +380,9 @@ fn timeout_writes_a_replayable_redacted_failure_bundle() {
             screen.contains("PTYTEST_READY")
         })
         .unwrap();
+    assert!(!terminal
+        .wait_for_output(terminal.deadline(Duration::from_millis(50)))
+        .unwrap());
     let bundle = match terminal.wait_for_screen(
         terminal.deadline(Duration::from_millis(1)),
         "intentional impossible predicate",
@@ -395,6 +398,10 @@ fn timeout_writes_a_replayable_redacted_failure_bundle() {
         }) => {
             assert_eq!(timeout, Duration::from_millis(1));
             assert!(elapsed >= Duration::from_millis(1));
+            assert!(
+                elapsed < Duration::from_millis(25),
+                "timeout elapsed should describe this wait, got {elapsed:?}"
+            );
             assert_eq!(status, ExitStatus::Running);
             assert_eq!(size, Size::new(80, 24).unwrap());
             path

@@ -37,13 +37,16 @@ impl Size {
 pub struct Deadline {
     instant: Instant,
     configured_for: Option<Duration>,
+    started_at: Instant,
 }
 
 impl Deadline {
     pub fn after(duration: Duration) -> Self {
+        let started_at = Instant::now();
         Self {
-            instant: Instant::now() + duration,
+            instant: started_at + duration,
             configured_for: Some(duration),
+            started_at,
         }
     }
 
@@ -51,6 +54,7 @@ impl Deadline {
         Self {
             instant,
             configured_for: None,
+            started_at: Instant::now(),
         }
     }
 
@@ -64,6 +68,10 @@ impl Deadline {
 
     pub(crate) fn configured_for(self) -> Option<Duration> {
         self.configured_for
+    }
+
+    pub(crate) fn elapsed(self) -> Duration {
+        self.started_at.elapsed()
     }
 }
 

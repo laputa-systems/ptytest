@@ -740,7 +740,7 @@ impl PtyTest {
             scenario: self.scenario.label.clone(),
             operation: operation.into(),
             deadline: deadline.configured_for(),
-            elapsed: self.started_at.elapsed(),
+            elapsed: deadline.elapsed(),
             status: self.observed_exit,
             size: self.screen().size(),
             artifact_dir: None,

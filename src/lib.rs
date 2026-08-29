@@ -55,7 +55,7 @@ pub enum PtyTestError {
         /// from [`Deadline::after`]. An absolute deadline intentionally has no
         /// fabricated duration.
         deadline: Option<std::time::Duration>,
-        /// Monotonic time since the harness was spawned.
+        /// Monotonic time since the supplied deadline was created.
         elapsed: std::time::Duration,
         /// The latest non-consuming status observation of the original child.
         status: ExitStatus,
