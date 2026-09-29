@@ -1,4 +1,4 @@
-use crate::artifact::ArtifactWriter;
+use crate::artifact::{ArtifactWriter, FailureContext};
 use crate::config::{Deadline, Scenario, ScenarioParts, Size};
 use crate::protocol::TerminalPeer;
 use crate::snapshot::{ScreenSnapshot, TerminalBaseline, TerminalState};
@@ -755,18 +755,18 @@ impl PtyTest {
     ) -> PtyTestError {
         let screen = self.screen();
         let state = self.terminal_state();
-        match self.artifact.write_failure(
-            &self.scenario,
+        match self.artifact.write_failure(FailureContext {
+            scenario: &self.scenario,
             operation,
-            &error,
-            &self.input,
-            &self.output,
-            &screen,
-            &state,
-            self.observed_exit,
-            &self.events,
+            error: &error,
+            input: &self.input,
+            output: &self.output,
+            screen: &screen,
+            terminal_state: &state,
+            status: self.observed_exit,
+            events: &self.events,
             expected,
-        ) {
+        }) {
             Ok(path) => attach_artifact(error, path),
             Err(_) => error,
         }

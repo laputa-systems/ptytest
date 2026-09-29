@@ -16,24 +16,39 @@ pub(crate) struct ArtifactWriter {
     root: Option<PathBuf>,
 }
 
+/// The evidence captured for one failure bundle. Grouping the related
+/// references keeps the bundle writer callable without a long argument list.
+pub(crate) struct FailureContext<'a> {
+    pub(crate) scenario: &'a ScenarioParts,
+    pub(crate) operation: &'a str,
+    pub(crate) error: &'a PtyTestError,
+    pub(crate) input: &'a [u8],
+    pub(crate) output: &'a [u8],
+    pub(crate) screen: &'a ScreenSnapshot,
+    pub(crate) terminal_state: &'a TerminalState,
+    pub(crate) status: ExitStatus,
+    pub(crate) events: &'a [TraceEvent],
+    pub(crate) expected: Option<&'a str>,
+}
+
 impl ArtifactWriter {
     pub(crate) fn new() -> Self {
         Self { root: None }
     }
 
-    pub(crate) fn write_failure(
-        &mut self,
-        scenario: &ScenarioParts,
-        operation: &str,
-        error: &PtyTestError,
-        input: &[u8],
-        output: &[u8],
-        screen: &ScreenSnapshot,
-        terminal_state: &TerminalState,
-        status: ExitStatus,
-        events: &[TraceEvent],
-        expected: Option<&str>,
-    ) -> Result<PathBuf> {
+    pub(crate) fn write_failure(&mut self, context: FailureContext<'_>) -> Result<PathBuf> {
+        let FailureContext {
+            scenario,
+            operation,
+            error,
+            input,
+            output,
+            screen,
+            terminal_state,
+            status,
+            events,
+            expected,
+        } = context;
         let root = match &self.root {
             Some(root) => root.clone(),
             None => {

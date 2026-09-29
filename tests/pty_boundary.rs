@@ -1,5 +1,5 @@
 use ptytest::{CommandSpec, ExitStatus, Key, ProtocolProfile, PtyTest, Scenario, Size, TestEnv};
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 fn fixture() -> CommandSpec {
@@ -571,7 +571,7 @@ fn seeded_fixture_schedule_preserves_semantic_state_and_cleanup() {
     }
 }
 
-fn assert_bundle(bundle: &PathBuf) {
+fn assert_bundle(bundle: &Path) {
     for name in [
         "command.txt",
         "configuration.txt",
