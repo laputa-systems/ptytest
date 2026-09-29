@@ -541,10 +541,9 @@ mod tests {
         } else {
             cell.c.to_string()
         };
-        if !wide_continuation
-            && let Some(zerowidth) = cell.zerowidth() {
-                contents.extend(zerowidth);
-            }
+        if !wide_continuation && let Some(zerowidth) = cell.zerowidth() {
+            contents.extend(zerowidth);
+        }
         NormalizedCell {
             contents,
             wide: cell.flags.contains(Flags::WIDE_CHAR),

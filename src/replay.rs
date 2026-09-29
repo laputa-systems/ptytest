@@ -134,9 +134,10 @@ pub fn replay_failure_bundle_with_options(
         PtyTestError::io_at("read replay output", path.join("output.bin"), error)
     })?;
     if let Some(offset) = options.output_byte
-        && offset >= output.len() {
-            return Err(invalid_replay("output-byte jump exceeds output.bin"));
-        }
+        && offset >= output.len()
+    {
+        return Err(invalid_replay("output-byte jump exceeds output.bin"));
+    }
     let parsed_events = parse_events(&read_text(&path.join("events.jsonl"))?)?;
     let mut terminal = TerminalBackend::new(size);
     let mut peer = TerminalPeer::new(profile);
@@ -152,9 +153,10 @@ pub fn replay_failure_bundle_with_options(
 
     for event in parsed_events {
         if let Some(limit) = options.event
-            && event.sequence > limit {
-                break;
-            }
+            && event.sequence > limit
+        {
+            break;
+        }
         let mut stop_after_event = false;
         match event.kind.as_str() {
             "resize" => {

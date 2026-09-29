@@ -458,9 +458,10 @@ unsafe fn child_exec(master: RawFd, slave: RawFd, error_fd: RawFd, prepared: &Pr
         unsafe { child_error(error_fd, 7) }
     }
     if let Some(current_dir) = &prepared.current_dir
-        && unsafe { libc::chdir(current_dir.as_ptr()) } < 0 {
-            unsafe { child_error(error_fd, 8) }
-        }
+        && unsafe { libc::chdir(current_dir.as_ptr()) } < 0
+    {
+        unsafe { child_error(error_fd, 8) }
+    }
     unsafe {
         libc::execve(
             prepared.program.as_ptr(),
