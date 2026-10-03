@@ -98,13 +98,22 @@ impl ScreenSnapshot {
         self.rows.get(row).and_then(|cells| cells.get(column))
     }
 
-    /// Returns a row with normal spaces intact and wide continuation cells
-    /// elided. This is the convenient assertion view, not the golden format.
+    /// Returns a row as a person reads it: cells the application never wrote
+    /// read as spaces, wide continuation cells are elided, and trailing
+    /// unwritten cells are dropped. Applications that repaint only changed
+    /// cells skip over blanks with cursor movement, so those gaps must not
+    /// collapse words together. This is the convenient assertion view, not the
+    /// golden format.
     pub fn row(&self, row: usize) -> Option<String> {
         self.rows.get(row).map(|cells| {
-            cells
+            let written = cells
                 .iter()
-                .filter_map(|cell| (!cell.wide_continuation).then_some(cell.contents.as_str()))
+                .rposition(|cell| !cell.contents.is_empty() || cell.wide_continuation)
+                .map_or(0, |last| last + 1);
+            cells[..written]
+                .iter()
+                .filter(|cell| !cell.wide_continuation)
+                .map(|cell| if cell.contents.is_empty() { " " } else { cell.contents.as_str() })
                 .collect()
         })
     }
@@ -254,12 +263,18 @@ pub struct TerminalState {
 }
 
 impl TerminalState {
-    pub(crate) fn from_snapshot(snapshot: &ScreenSnapshot, scrollback_offset: usize) -> Self {
+    pub(crate) fn new(
+        size: Size,
+        cursor: Cursor,
+        modes: TerminalModes,
+        row_wrapped: Vec<bool>,
+        scrollback_offset: usize,
+    ) -> Self {
         Self {
-            size: snapshot.size,
-            cursor: snapshot.cursor,
-            modes: snapshot.modes.clone(),
-            row_wrapped: snapshot.row_wrapped.clone(),
+            size,
+            cursor,
+            modes,
+            row_wrapped,
             scrollback_offset,
         }
     }
@@ -292,6 +307,19 @@ pub(crate) fn cell_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rows_read_unwritten_gaps_as_spaces_and_drop_trailing_blanks() {
+        let mut terminal = crate::terminal::TerminalBackend::new(Size::new(20, 2).unwrap());
+        // A repaint that skips blanks with cursor movement leaves cells that
+        // were never written between the words.
+        terminal.process(b"ab\x1b[3Ccd\x1b[2;1H\xe7\x95\x8c!");
+        let snapshot = terminal.snapshot().unwrap();
+        assert_eq!(snapshot.row(0).as_deref(), Some("ab   cd"));
+        assert!(snapshot.contains("ab   cd"));
+        assert!(!snapshot.contains("abcd"));
+        assert_eq!(snapshot.row(1).as_deref(), Some("界!"));
+    }
 
     #[test]
     fn text_snapshot_marks_blank_and_continuation_cells() {

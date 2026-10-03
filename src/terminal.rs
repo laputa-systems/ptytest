@@ -26,12 +26,30 @@ impl TerminalBackend {
             .set_size(size.rows(), size.columns());
     }
 
-    pub(crate) fn snapshot(&self) -> Result<ScreenSnapshot> {
+    /// Cursor row and column without copying the screen. The protocol peer
+    /// needs this after every output byte, so it must stay O(1).
+    pub(crate) fn cursor_position(&self) -> (u16, u16) {
+        self.parser.screen().cursor_position()
+    }
+
+    fn size(&self) -> Result<Size> {
+        let (rows, columns) = self.parser.screen().size();
+        Size::new(columns, rows)
+    }
+
+    fn cursor(&self) -> Cursor {
         let screen = self.parser.screen();
-        let (rows, columns) = screen.size();
-        let size = Size::new(columns, rows)?;
-        let (cursor_row, cursor_column) = screen.cursor_position();
-        let modes = TerminalModes {
+        let (row, column) = screen.cursor_position();
+        Cursor {
+            row,
+            column,
+            visible: !screen.hide_cursor(),
+        }
+    }
+
+    fn modes(&self) -> TerminalModes {
+        let screen = self.parser.screen();
+        TerminalModes {
             alternate_screen: screen.alternate_screen(),
             application_cursor: screen.application_cursor(),
             application_keypad: screen.application_keypad(),
@@ -44,7 +62,19 @@ impl TerminalBackend {
                 vt100::MouseProtocolMode::ButtonMotion => MouseMode::ButtonMotion,
                 vt100::MouseProtocolMode::AnyMotion => MouseMode::AnyMotion,
             },
-        };
+        }
+    }
+
+    fn row_wrapped(&self) -> Vec<bool> {
+        let screen = self.parser.screen();
+        let (rows, _) = screen.size();
+        (0..rows).map(|row| screen.row_wrapped(row)).collect()
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<ScreenSnapshot> {
+        let screen = self.parser.screen();
+        let (rows, columns) = screen.size();
+        let size = self.size()?;
         let screen_rows = (0..rows)
             .map(|row| {
                 (0..columns)
@@ -73,21 +103,21 @@ impl TerminalBackend {
             .collect();
         Ok(ScreenSnapshot::new(
             size,
-            Cursor {
-                row: cursor_row,
-                column: cursor_column,
-                visible: !screen.hide_cursor(),
-            },
-            modes,
+            self.cursor(),
+            self.modes(),
             screen_rows,
-            (0..rows).map(|row| screen.row_wrapped(row)).collect(),
+            self.row_wrapped(),
         ))
     }
 
+    /// Lifecycle state without the cell grid. Unlike `snapshot` this does not
+    /// scale with the screen area.
     pub(crate) fn state(&self) -> Result<TerminalState> {
-        let snapshot = self.snapshot()?;
-        Ok(TerminalState::from_snapshot(
-            &snapshot,
+        Ok(TerminalState::new(
+            self.size()?,
+            self.cursor(),
+            self.modes(),
+            self.row_wrapped(),
             self.parser.screen().scrollback(),
         ))
     }

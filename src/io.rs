@@ -542,8 +542,8 @@ impl PtyTest {
                 for byte in bytes {
                     let byte = [*byte];
                     self.terminal.process(&byte);
-                    let cursor = self.terminal_state().cursor;
-                    for reply in self.peer.observe(&byte, (cursor.row, cursor.column))? {
+                    let cursor = self.terminal.cursor_position();
+                    for reply in self.peer.observe(&byte, cursor)? {
                         self.event(
                             "terminal-query",
                             format!("output-offset={} control={}", reply.offset, reply.control),
