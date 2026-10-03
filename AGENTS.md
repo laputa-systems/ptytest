@@ -198,7 +198,8 @@ Type and ownership rules:
   non-default attribute ranges; the default golden stays visible semantics
   plus selected lifecycle modes. `contains`/row helpers ignore diagnostic
   whitespace markers.
-- `assert_snapshot(path)` compares the owned text form; normal runs never
+- `assert_snapshot(path)` compares the owned text form (`assert_snapshot_with`
+  takes `SnapshotOptions`, e.g. to freeze cell attributes); normal runs never
   write. Only `PTYTEST_UPDATE_SNAPSHOTS=1 cargo test ...` updates (atomically),
   with an inline diff plus expected/actual/diff artifacts on mismatch. Keep
   goldens beside their owning scenario; prefer focused cell/style assertions

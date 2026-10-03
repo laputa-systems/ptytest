@@ -603,3 +603,30 @@ fn descendant_pid(output: &[u8]) -> libc::pid_t {
         .parse()
         .expect("fixture descendant PID is numeric")
 }
+
+#[test]
+fn attribute_snapshots_compare_and_report_mismatches() {
+    let directory = std::env::temp_dir().join(format!("ptytest-snapshot-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let golden = directory.join("ready.ptytest");
+
+    let mut terminal = PtyTest::spawn(scenario("attribute snapshot")).unwrap();
+    terminal
+        .wait_for_screen(deadline(&terminal), "fixture readiness", |screen| {
+            screen.contains("PTYTEST_READY")
+        })
+        .unwrap();
+    let options = ptytest::SnapshotOptions::default().with_attributes();
+    let expected = terminal.screen().to_text(options.clone());
+    std::fs::write(&golden, &expected).unwrap();
+    terminal.assert_snapshot_with(&golden, options.clone()).unwrap();
+
+    std::fs::write(&golden, "size: columns=1 rows=1\n").unwrap();
+    let error = terminal.assert_snapshot_with(&golden, options).unwrap_err();
+    assert!(matches!(error, ptytest::PtyTestError::SnapshotMismatch { .. }), "{error:?}");
+
+    terminal.send_text(deadline(&terminal), "exit:0\n").unwrap();
+    terminal.wait_for_exit(deadline(&terminal)).unwrap();
+    terminal.finish(deadline(&terminal)).unwrap();
+    std::fs::remove_dir_all(&directory).unwrap();
+}

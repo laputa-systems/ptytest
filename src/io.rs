@@ -1,7 +1,7 @@
 use crate::artifact::{ArtifactWriter, FailureContext};
 use crate::config::{Deadline, Scenario, ScenarioParts, Size};
 use crate::protocol::TerminalPeer;
-use crate::snapshot::{ScreenSnapshot, TerminalBaseline, TerminalState};
+use crate::snapshot::{ScreenSnapshot, SnapshotOptions, TerminalBaseline, TerminalState};
 use crate::terminal::TerminalBackend;
 use crate::unix::{self, Spawned};
 use crate::{PtyTestError, Result};
@@ -409,8 +409,19 @@ impl PtyTest {
     }
 
     pub fn assert_snapshot(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        self.assert_snapshot_with(path, SnapshotOptions::default())
+    }
+
+    /// Like [`assert_snapshot`](Self::assert_snapshot) with explicit text
+    /// options, for goldens that must also freeze cell attributes such as
+    /// reverse video and dimming.
+    pub fn assert_snapshot_with(
+        &mut self,
+        path: impl AsRef<Path>,
+        options: SnapshotOptions,
+    ) -> Result<()> {
         let path = path.as_ref();
-        let actual = self.screen().to_string();
+        let actual = self.screen().to_text(options);
         match fs::read_to_string(path) {
             Ok(expected) if expected == actual => Ok(()),
             Ok(_expected) if snapshot_updates_enabled() => {
