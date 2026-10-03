@@ -4,6 +4,7 @@ description = "laputa-ptytest"
 version = "0.1.1"
 edition = "2024"
 license = "MIT"
+exclude = ["tools/bump_minor_release.sh"]
 
 # Keep the published package name distinct from the Rust crate name used by
 # consumers (`use ptytest::...`).
