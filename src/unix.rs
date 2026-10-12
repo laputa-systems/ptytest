@@ -292,7 +292,10 @@ fn open_pty(size: Size) -> Result<(OwnedFd, OwnedFd)> {
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
-    if unsafe {
+    // libc declares the winsize parameter as `*const` on Linux but `*mut` on macOS;
+    // `&mut` compiles on both, so Linux clippy's unnecessary-mut lint is wrong here.
+    #[cfg_attr(target_os = "linux", allow(clippy::unnecessary_mut_passed))]
+    let opened = unsafe {
         libc::openpty(
             &mut master,
             &mut slave,
@@ -300,8 +303,8 @@ fn open_pty(size: Size) -> Result<(OwnedFd, OwnedFd)> {
             std::ptr::null_mut(),
             &mut window_size,
         )
-    } < 0
-    {
+    };
+    if opened < 0 {
         return Err(system("openpty"));
     }
     let master = unsafe { OwnedFd::from_raw_fd(move_fd_at_least(master, 3)?) };
