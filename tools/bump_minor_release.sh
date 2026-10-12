@@ -5,7 +5,7 @@ LC_ALL=C
 export LC_ALL
 
 fail() {
-    printf '%s\n' "make bump: $*" >&2
+    printf '%s\n' "make publish: $*" >&2
     exit 1
 }
 
@@ -37,12 +37,12 @@ on_exit() {
         fi
         if [ "$head_subject" != "$release_subject" ]; then
             if ! git reset -- Cargo.toml Cargo.lock; then
-                printf '%s\n' "make bump: failed to unstage release inputs; backups remain in $backup_dir" >&2
+                printf '%s\n' "make publish: failed to unstage release inputs; backups remain in $backup_dir" >&2
                 exit 1
             fi
             if ! cp -p "$backup_dir/Cargo.toml" "$MANIFEST" ||
                 ! cp -p "$backup_dir/Cargo.lock" "$LOCKFILE"; then
-                printf '%s\n' "make bump: failed to restore release inputs; backups remain in $backup_dir" >&2
+                printf '%s\n' "make publish: failed to restore release inputs; backups remain in $backup_dir" >&2
                 exit 1
             fi
         fi
