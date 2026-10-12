@@ -4,7 +4,7 @@ description = "Test a terminal program through a real PTY with an independent VT
 version = "0.2.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/joshuarli/ptytest"
+repository = "https://github.com/laputa-systems/ptytest"
 exclude = ["tools/bump_minor_release.sh"]
 
 # Keep the published package name distinct from the Rust crate name used by
