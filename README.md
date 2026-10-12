@@ -45,7 +45,7 @@ backend capabilities, and baselines.
 ## Make targets
 
 - `make test` runs `cargo test --locked`.
-- `make lint` runs `cargo fmt` and `cargo clippy --fix`.
+- `make lint` runs `cargo clippy --fix`.
 - `make publish` runs `tools/bump_minor_release.sh`.
 
 ## License
