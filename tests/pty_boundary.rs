@@ -617,9 +617,9 @@ fn attribute_snapshots_compare_and_report_mismatches() {
         })
         .unwrap();
     let options = ptytest::SnapshotOptions::default().with_attributes();
-    let expected = terminal.screen().to_text(options.clone());
+    let expected = terminal.screen().to_text(options);
     std::fs::write(&golden, &expected).unwrap();
-    terminal.assert_snapshot_with(&golden, options.clone()).unwrap();
+    terminal.assert_snapshot_with(&golden, options).unwrap();
 
     std::fs::write(&golden, "size: columns=1 rows=1\n").unwrap();
     let error = terminal.assert_snapshot_with(&golden, options).unwrap_err();
