@@ -4,7 +4,7 @@ test:
 	cargo test --locked
 
 lint:
-	cargo clippy --fix --allow-dirty --all-targets --all-features -- --deny warnings
+	cargo clippy --all-targets --all-features -- --deny warnings
 
 publish:
 	./tools/bump_minor_release.sh

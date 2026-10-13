@@ -6,8 +6,10 @@ use crate::terminal::TerminalBackend;
 use crate::unix::{self, Spawned};
 use crate::{PtyTestError, Result};
 use std::fs;
+use std::io::Write;
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// The child status observed through the original child PID.
@@ -283,7 +285,13 @@ impl PtyTest {
     pub fn wait_for_output(&mut self, deadline: Deadline) -> Result<bool> {
         let initial_length = self.output.len();
         loop {
-            self.read_available(deadline)?;
+            match self.read_available(deadline) {
+                Ok(()) => {}
+                Err(PtyTestError::Timeout { .. }) if deadline.expired() => {
+                    return Ok(self.output.len() != initial_length);
+                }
+                Err(error) => return Err(error),
+            }
             if self.output.len() != initial_length {
                 return Ok(true);
             }
@@ -304,29 +312,33 @@ impl PtyTest {
     /// never extends the caller's overall deadline. `false` means the overall
     /// deadline expired before the terminal became quiet.
     pub fn wait_for_quiescence(&mut self, deadline: Deadline, quiet: Duration) -> Result<bool> {
-        if quiet.is_zero() {
-            self.read_available(deadline)?;
-            return Ok(true);
-        }
-
+        let Some(mut quiet_deadline) = deadline.bounded_after(quiet) else {
+            return Ok(false);
+        };
+        let mut initial_length = self.output.len();
         loop {
-            self.read_available(deadline)?;
+            match self.read_available(deadline) {
+                Ok(()) => {}
+                Err(PtyTestError::Timeout { .. }) if deadline.expired() => return Ok(false),
+                Err(error) => return Err(error),
+            }
+            if self.output.len() != initial_length {
+                initial_length = self.output.len();
+                let Some(next_quiet_deadline) = deadline.bounded_after(quiet) else {
+                    return Ok(false);
+                };
+                quiet_deadline = next_quiet_deadline;
+            }
             if deadline.expired() {
                 return Ok(false);
             }
-            let Some(remaining) = deadline.remaining() else {
-                return Ok(false);
-            };
-            let quiet_deadline = Deadline::after(quiet.min(remaining));
-            let initial_length = self.output.len();
+            if quiet_deadline.expired() {
+                return Ok(true);
+            }
             match self.wait_for_activity(quiet_deadline) {
                 Ok(()) => {}
-                Err(PtyTestError::Timeout { .. }) if quiet_deadline.expired() => return Ok(true),
+                Err(PtyTestError::Timeout { .. }) if quiet_deadline.expired() => {}
                 Err(error) => return Err(error),
-            }
-            self.read_available(deadline)?;
-            if self.output.len() == initial_length {
-                return Ok(true);
             }
         }
     }
@@ -493,6 +505,9 @@ impl PtyTest {
     ) -> Result<()> {
         let mut offset = 0;
         while offset < bytes.len() {
+            if deadline.expired() {
+                return Err(self.timeout_error(deadline, "write PTY master"));
+            }
             let fd = self.master_fd()?;
             let written =
                 unsafe { libc::write(fd, bytes[offset..].as_ptr().cast(), bytes.len() - offset) };
@@ -534,6 +549,9 @@ impl PtyTest {
         let fd = master.as_raw_fd();
         let mut buffer = [0_u8; 8192];
         loop {
+            if deadline.expired() {
+                return Err(self.timeout_error(deadline, "read PTY master"));
+            }
             let count = unsafe { libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len()) };
             if count > 0 {
                 let bytes = &buffer[..count as usize];
@@ -598,10 +616,6 @@ impl PtyTest {
     }
 
     fn poll(&self, deadline: Deadline, requested_events: i16) -> Result<()> {
-        let remaining = deadline
-            .remaining()
-            .ok_or_else(|| self.timeout_error(deadline, "poll"))?;
-        let milliseconds = remaining.as_millis().clamp(1, 25) as libc::c_int;
         let mut descriptor = (!self.closed)
             .then_some(self.master.as_ref())
             .flatten()
@@ -615,6 +629,10 @@ impl PtyTest {
             None => (std::ptr::null_mut(), 0),
         };
         loop {
+            let remaining = deadline
+                .remaining()
+                .ok_or_else(|| self.timeout_error(deadline, "poll"))?;
+            let milliseconds = remaining.as_millis().clamp(1, 25) as libc::c_int;
             let result = unsafe { libc::poll(pointer, count, milliseconds) };
             if result >= 0 {
                 return Ok(());
@@ -630,11 +648,11 @@ impl PtyTest {
     }
 
     fn poll_timer(&self, deadline: Deadline) -> Result<()> {
-        let remaining = deadline
-            .remaining()
-            .ok_or_else(|| self.timeout_error(deadline, "cleanup group poll"))?;
-        let milliseconds = remaining.as_millis().clamp(1, 25) as libc::c_int;
         loop {
+            let remaining = deadline
+                .remaining()
+                .ok_or_else(|| self.timeout_error(deadline, "cleanup group poll"))?;
+            let milliseconds = remaining.as_millis().clamp(1, 25) as libc::c_int;
             let result = unsafe { libc::poll(std::ptr::null_mut(), 0, milliseconds) };
             if result >= 0 {
                 return Ok(());
@@ -669,7 +687,38 @@ impl PtyTest {
         if self.reaped {
             return Ok(self.observed_exit);
         }
-        self.read_available(deadline)?;
+        let mut terminal_error = None;
+        let result = self.cleanup_processes(deadline, &mut terminal_error);
+        match (terminal_error, result) {
+            (Some(error), Err(cleanup_error)) => {
+                self.event("cleanup-error", cleanup_error.to_string());
+                Err(error)
+            }
+            (Some(error), Ok(_)) => Err(error),
+            (None, result) => result,
+        }
+    }
+
+    // Terminal failures must not prevent termination or reaping. After the
+    // first failure, leave terminal processing alone and keep the original
+    // error while cleanup continues using only process ownership.
+    fn read_during_cleanup(&mut self, deadline: Deadline, error: &mut Option<PtyTestError>) {
+        if error.is_none() && !deadline.expired() {
+            match self.read_available(deadline) {
+                Ok(()) => {}
+                // Exhausting a cleanup stage's read budget advances cleanup;
+                // it is not a terminal failure or a reason to skip SIGKILL.
+                Err(PtyTestError::Timeout { .. }) if deadline.expired() => {}
+                Err(read_error) => *error = Some(read_error),
+            }
+        }
+    }
+
+    fn cleanup_processes(
+        &mut self,
+        deadline: Deadline,
+        terminal_error: &mut Option<PtyTestError>,
+    ) -> Result<ExitStatus> {
         let leader_was_observed = if let Some(status) = unix::observe_exit(self.child_pid)? {
             self.observed_exit = status;
             true
@@ -686,19 +735,20 @@ impl PtyTest {
             .remaining()
             .ok_or_else(|| self.timeout_error(deadline, "cleanup child process group"))?;
         let graceful_deadline = Deadline::after(remaining / 2);
-        let leader_exited =
-            leader_was_observed || self.wait_for_leader_exit(graceful_deadline)?.is_some();
+        self.read_during_cleanup(graceful_deadline, terminal_error);
+        let leader_exited = leader_was_observed
+            || self.wait_for_leader_exit(graceful_deadline, terminal_error)?.is_some();
         let group_drained = leader_exited && self.wait_for_group_drain(graceful_deadline)?;
         if !leader_exited || !group_drained {
             self.signal_cleanup_group(libc::SIGKILL)?;
-            if !leader_exited && self.wait_for_leader_exit(deadline)?.is_none() {
+            if !leader_exited && self.wait_for_leader_exit(deadline, terminal_error)?.is_none() {
                 return Err(self.timeout_error(deadline, "cleanup child process group"));
             }
             if !self.wait_for_group_drain(deadline)? {
                 return Err(self.timeout_error(deadline, "cleanup child process group"));
             }
         }
-        self.read_available(deadline)?;
+        self.read_during_cleanup(deadline, terminal_error);
         let status = unix::reap(self.child_pid)?;
         self.observed_exit = status;
         self.reaped = true;
@@ -719,16 +769,29 @@ impl PtyTest {
         }
     }
 
-    fn wait_for_leader_exit(&mut self, deadline: Deadline) -> Result<Option<ExitStatus>> {
+    fn wait_for_leader_exit(
+        &mut self,
+        deadline: Deadline,
+        terminal_error: &mut Option<PtyTestError>,
+    ) -> Result<Option<ExitStatus>> {
         loop {
-            self.read_available(deadline)?;
+            self.read_during_cleanup(deadline, terminal_error);
             if let Some(status) = self.observe_exit()? {
                 return Ok(Some(status));
             }
             if deadline.expired() {
                 return Ok(None);
             }
-            self.wait_for_activity(deadline)?;
+            let wait = if terminal_error.is_some() {
+                self.poll_timer(deadline)
+            } else {
+                self.wait_for_activity(deadline)
+            };
+            match wait {
+                Ok(()) => {}
+                Err(PtyTestError::Timeout { .. }) if deadline.expired() => return Ok(None),
+                Err(error) => return Err(error),
+            }
         }
     }
 
@@ -742,7 +805,11 @@ impl PtyTest {
             }
             // An already closed PTY reports HUP immediately. A descriptor-free
             // poll remains a monotonic kernel wait instead of a busy loop.
-            self.poll_timer(deadline)?;
+            match self.poll_timer(deadline) {
+                Ok(()) => {}
+                Err(PtyTestError::Timeout { .. }) if deadline.expired() => return Ok(false),
+                Err(error) => return Err(error),
+            }
         }
     }
 
@@ -872,21 +939,43 @@ fn snapshot_updates_enabled() -> bool {
     std::env::var("PTYTEST_UPDATE_SNAPSHOTS").as_deref() == Ok("1")
 }
 
+static SNAPSHOT_UPDATE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct SnapshotTemporary {
+    path: PathBuf,
+    published: bool,
+}
+
+impl Drop for SnapshotTemporary {
+    fn drop(&mut self) {
+        if !self.published {
+            // On failure, best-effort removal must not replace the original
+            // write/rename error. Once published, this path is no longer ours.
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 fn write_snapshot_atomically(path: &Path, contents: &str) -> Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)
         .map_err(|error| PtyTestError::io_at("create snapshot directory", parent, error))?;
-    let temporary = parent.join(format!(
-        ".{}.ptytest-{}",
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("snapshot"),
-        std::process::id()
-    ));
-    fs::write(&temporary, contents)
-        .map_err(|error| PtyTestError::io_at("write snapshot temporary", &temporary, error))?;
-    fs::rename(&temporary, path)
-        .map_err(|error| PtyTestError::io_at("replace snapshot", path, error))
+    let (mut temporary, mut file) = loop {
+        let sequence = SNAPSHOT_UPDATE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(".ptytest-{}-{sequence}", std::process::id()));
+        match fs::OpenOptions::new().write(true).create_new(true).open(&temporary) {
+            Ok(file) => break (SnapshotTemporary { path: temporary, published: false }, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(PtyTestError::io_at("create snapshot temporary", temporary, error)),
+        }
+    };
+    file.write_all(contents.as_bytes())
+        .map_err(|error| PtyTestError::io_at("write snapshot temporary", &temporary.path, error))?;
+    drop(file);
+    fs::rename(&temporary.path, path)
+        .map_err(|error| PtyTestError::io_at("replace snapshot", path, error))?;
+    temporary.published = true;
+    Ok(())
 }
 
 fn inline_diff(expected: &str, actual: &str) -> String {
@@ -907,4 +996,102 @@ fn inline_diff(expected: &str, actual: &str) -> String {
         expected.lines().count(),
         actual.lines().count()
     )
+}
+
+#[cfg(test)]
+mod io_regressions {
+    use super::*;
+    use crate::TestEnv;
+
+    #[test]
+    fn snapshot_update_does_not_touch_another_updates_temporary_file() {
+        let environment = TestEnv::hermetic().unwrap();
+        let directory = environment.paths().fixtures();
+        let path = directory.join("snapshot");
+        let occupied = directory.join(format!(".snapshot.ptytest-{}", std::process::id()));
+        fs::write(&occupied, "another update").unwrap();
+        write_snapshot_atomically(&path, "replacement").unwrap();
+        assert_eq!(fs::read_to_string(&occupied).unwrap(), "another update");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "replacement");
+    }
+
+    #[test]
+    fn failed_snapshot_replace_removes_its_temporary_file() {
+        let environment = TestEnv::hermetic().unwrap();
+        let directory = environment.paths().fixtures();
+        let path = directory.join("snapshot");
+        fs::create_dir(&path).unwrap();
+        assert!(write_snapshot_atomically(&path, "replacement").is_err());
+        let entries = fs::read_dir(directory).unwrap().collect::<std::io::Result<Vec<_>>>().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path(), path);
+    }
+
+    #[test]
+    fn concurrent_snapshot_updates_each_publish_a_complete_file() {
+        let environment = TestEnv::hermetic().unwrap();
+        let path = environment.paths().fixtures().join("snapshot");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let contents = (0..8).map(|index| char::from(b'a' + index).to_string().repeat(128 * 1024)).collect::<Vec<_>>();
+        std::thread::scope(|scope| {
+            let handles = contents.iter().map(|contents| {
+                let barrier = &barrier;
+                let path = &path;
+                scope.spawn(move || {
+                    barrier.wait();
+                    for _ in 0..3 {
+                        write_snapshot_atomically(path, contents).unwrap();
+                    }
+                })
+            }).collect::<Vec<_>>();
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
+        let actual = fs::read_to_string(&path).unwrap();
+        assert!(contents.contains(&actual));
+        assert_eq!(fs::read_dir(environment.paths().fixtures()).unwrap().count(), 1);
+    }
+
+    extern "C" fn interrupt_poll(_: libc::c_int) {}
+
+    #[test]
+    fn interrupted_polls_stop_at_the_caller_deadline() {
+        let mut terminal = PtyTest::spawn(Scenario::new("interrupted poll deadline").unwrap()
+            .command(crate::CommandSpec::new("/usr/bin/true"))
+            .environment(TestEnv::hermetic().unwrap())).unwrap();
+        terminal.hangup();
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = interrupt_poll as *const () as usize;
+        unsafe { libc::sigemptyset(&mut action.sa_mask) };
+        let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::sigaction(libc::SIGWINCH, &action, &mut previous) }, 0);
+        let thread = unsafe { libc::pthread_self() } as usize;
+        let mut results = Vec::new();
+        for descriptor_free in [false, true] {
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let sender_barrier = barrier.clone();
+            let sender = std::thread::spawn(move || {
+                sender_barrier.wait();
+                let until = Instant::now() + Duration::from_millis(100);
+                while Instant::now() < until {
+                    assert_eq!(unsafe { libc::pthread_kill(thread as libc::pthread_t, libc::SIGWINCH) }, 0);
+                }
+            });
+            barrier.wait();
+            let deadline = Deadline::after(Duration::from_millis(20));
+            results.push(if descriptor_free {
+                terminal.poll_timer(deadline)
+            } else {
+                terminal.poll(deadline, libc::POLLIN)
+            });
+            sender.join().unwrap();
+        }
+        assert_eq!(unsafe { libc::sigaction(libc::SIGWINCH, &previous, std::ptr::null_mut()) }, 0);
+        terminal.finish(Deadline::after(Duration::from_secs(2))).unwrap();
+        for result in results {
+            assert!(matches!(result, Err(PtyTestError::Timeout { .. })), "{result:?}");
+        }
+    }
+
 }

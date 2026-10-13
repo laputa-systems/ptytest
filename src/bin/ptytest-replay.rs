@@ -1,16 +1,26 @@
 use ptytest::{ReplayOptions, replay_failure_bundle_with_options};
 use std::path::PathBuf;
 
+const USAGE: &str = "usage: ptytest-replay <failure-bundle> [--dump-events] [--step] [--event <sequence> | --byte <output-offset>]";
+
 fn main() {
     let mut arguments = std::env::args_os().skip(1);
     let Some(path) = arguments.next() else {
         usage();
     };
+    if matches!(path.to_str(), Some("-h" | "--help")) {
+        print_help();
+        return;
+    }
     let mut options = ReplayOptions::default();
     let mut dump_events = false;
     let mut step = false;
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
+            Some("-h" | "--help") => {
+                print_help();
+                return;
+            }
             Some("--dump-events") => dump_events = true,
             Some("--step") => {
                 step = true;
@@ -73,8 +83,10 @@ fn main() {
 }
 
 fn usage() -> ! {
-    eprintln!(
-        "usage: ptytest-replay <failure-bundle> [--dump-events] [--step] [--event <sequence> | --byte <output-offset>]"
-    );
+    eprintln!("{USAGE}");
     std::process::exit(2)
+}
+
+fn print_help() {
+    println!("{USAGE}\n\nOptions:\n  -h, --help  Print this help");
 }

@@ -21,6 +21,7 @@ fn main() {
     match std::env::args().nth(1).as_deref() {
         Some("--wait-sigint") => return wait_for_sigint(),
         Some("--wait-eof") => return wait_for_eof(),
+        Some("--cleanup-failure") => return cleanup_failure(),
         Some("--leader-exits-with-descendant") => return leader_exits_with_descendant(),
         _ => {}
     }
@@ -85,6 +86,35 @@ fn main() {
             Some(_) => line("FIXTURE_UNKNOWN"),
             None => return,
         }
+    }
+}
+
+
+fn cleanup_failure() {
+    set_raw_stdin();
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+        libc::signal(libc::SIGTERM, libc::SIG_IGN);
+    }
+    line(&format!("CLEANUP_PID={}", unsafe { libc::getpid() }));
+    line("CLEANUP_READY");
+    let command = read_line().expect("cleanup command");
+    match command.as_str() {
+        "query" => write_all(b"\x1b[6n"),
+        "overflow" => write_all(&[b'x'; 128]),
+        "flood" => {
+            std::fs::write(std::env::temp_dir().join("cleanup-output-ready"), b"ready")
+                .expect("write output barrier");
+            loop {
+                write_all(&[b'x'; 8192]);
+            }
+        }
+        _ => panic!("unknown cleanup command"),
+    }
+    std::fs::write(std::env::temp_dir().join("cleanup-output-ready"), b"ready")
+        .expect("write cleanup output barrier");
+    loop {
+        pause();
     }
 }
 

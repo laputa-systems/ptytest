@@ -337,34 +337,260 @@ fn parse_events(events: &str) -> Result<Vec<ReplayEvent>> {
         .lines()
         .enumerate()
         .map(|(line_number, line)| {
-            let version = json_number(line, "version")
-                .ok_or_else(|| invalid_replay("event version is absent"))?;
-            if version != 1 {
+            let record = parse_event_record(line)?;
+            if record.version != 1 {
                 return Err(invalid_replay("unsupported event trace version"));
             }
-            let sequence = json_number(line, "sequence")
-                .ok_or_else(|| invalid_replay("event sequence is absent"))?;
+            let sequence = record.sequence;
             if sequence != line_number as u128 {
                 return Err(invalid_replay("event sequences are not contiguous"));
             }
-            let elapsed_ns = json_number(line, "elapsed_ns")
-                .ok_or_else(|| invalid_replay("event elapsed time is absent"))?;
+            let elapsed_ns = record.elapsed_ns;
             if previous_elapsed.is_some_and(|previous| elapsed_ns < previous) {
                 return Err(invalid_replay("event times are not monotonic"));
             }
             previous_elapsed = Some(elapsed_ns);
-            let kind = json_string(line, "kind")?;
-            let payload = json_string(line, "payload")?;
+            if !known_event_kind(&record.kind) {
+                return Err(invalid_replay("unknown event kind"));
+            }
             let sequence = u64::try_from(sequence)
                 .map_err(|_| invalid_replay("event sequence exceeds u64"))?;
             Ok(ReplayEvent {
                 sequence,
                 elapsed_ns,
-                kind,
-                payload,
+                kind: record.kind,
+                payload: record.payload,
             })
         })
         .collect()
+}
+
+struct EventRecord {
+    version: u128,
+    sequence: u128,
+    elapsed_ns: u128,
+    kind: String,
+    payload: String,
+}
+
+fn parse_event_record(line: &str) -> Result<EventRecord> {
+    let mut parser = JsonParser::new(line);
+    parser.skip_whitespace();
+    parser.expect(b'{')?;
+    parser.skip_whitespace();
+
+    let mut version = None;
+    let mut sequence = None;
+    let mut elapsed_ns = None;
+    let mut kind = None;
+    let mut payload = None;
+    if !parser.consume(b'}') {
+        loop {
+            let key = parser.string()?;
+            parser.skip_whitespace();
+            parser.expect(b':')?;
+            parser.skip_whitespace();
+            match key.as_str() {
+                "version" => set_once(&mut version, parser.number()?)?,
+                "sequence" => set_once(&mut sequence, parser.number()?)?,
+                "elapsed_ns" => set_once(&mut elapsed_ns, parser.number()?)?,
+                "kind" => set_once(&mut kind, parser.string()?)?,
+                "payload" => set_once(&mut payload, parser.string()?)?,
+                _ => return Err(invalid_replay("unknown event field")),
+            }
+            parser.skip_whitespace();
+            if parser.consume(b'}') {
+                break;
+            }
+            parser.expect(b',')?;
+            parser.skip_whitespace();
+        }
+    }
+    parser.skip_whitespace();
+    if !parser.is_finished() {
+        return Err(invalid_replay("trailing data after event record"));
+    }
+
+    Ok(EventRecord {
+        version: version.ok_or_else(|| invalid_replay("event version is absent"))?,
+        sequence: sequence.ok_or_else(|| invalid_replay("event sequence is absent"))?,
+        elapsed_ns: elapsed_ns.ok_or_else(|| invalid_replay("event elapsed time is absent"))?,
+        kind: kind.ok_or_else(|| invalid_replay("event kind is absent"))?,
+        payload: payload.ok_or_else(|| invalid_replay("event payload is absent"))?,
+    })
+}
+
+fn set_once<T>(field: &mut Option<T>, value: T) -> Result<()> {
+    if field.replace(value).is_some() {
+        return Err(invalid_replay("duplicate event field"));
+    }
+    Ok(())
+}
+
+fn known_event_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "spawn"
+            | "exit-observed"
+            | "hangup"
+            | "resize"
+            | "signal"
+            | "predicate"
+            | "snapshot-update"
+            | "write"
+            | "read"
+            | "terminal-query"
+            | "terminal-reply"
+            | "cleanup-signal"
+            | "cleanup-error"
+    )
+}
+
+struct JsonParser<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> JsonParser<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            bytes: input.as_bytes(),
+            offset: 0,
+        }
+    }
+
+    fn is_finished(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
+
+    fn skip_whitespace(&mut self) {
+        while matches!(self.bytes.get(self.offset), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+            self.offset += 1;
+        }
+    }
+
+    fn consume(&mut self, expected: u8) -> bool {
+        if self.bytes.get(self.offset) == Some(&expected) {
+            self.offset += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect(&mut self, expected: u8) -> Result<()> {
+        if self.consume(expected) {
+            Ok(())
+        } else {
+            Err(invalid_replay("malformed event JSON"))
+        }
+    }
+
+    fn number(&mut self) -> Result<u128> {
+        let start = self.offset;
+        if self.consume(b'0') {
+            if self.bytes.get(self.offset).is_some_and(u8::is_ascii_digit) {
+                return Err(invalid_replay("invalid event number"));
+            }
+        } else {
+            while self.bytes.get(self.offset).is_some_and(u8::is_ascii_digit) {
+                self.offset += 1;
+            }
+            if self.offset == start {
+                return Err(invalid_replay("invalid event number"));
+            }
+        }
+        std::str::from_utf8(&self.bytes[start..self.offset])
+            .ok()
+            .and_then(|number| number.parse().ok())
+            .ok_or_else(|| invalid_replay("invalid event number"))
+    }
+
+    fn string(&mut self) -> Result<String> {
+        self.expect(b'"')?;
+        let mut output = String::new();
+        loop {
+            let byte = *self
+                .bytes
+                .get(self.offset)
+                .ok_or_else(|| invalid_replay("unterminated event string"))?;
+            match byte {
+                b'"' => {
+                    self.offset += 1;
+                    return Ok(output);
+                }
+                b'\\' => {
+                    self.offset += 1;
+                    let escaped = *self
+                        .bytes
+                        .get(self.offset)
+                        .ok_or_else(|| invalid_replay("unterminated event string escape"))?;
+                    self.offset += 1;
+                    match escaped {
+                        b'"' => output.push('"'),
+                        b'\\' => output.push('\\'),
+                        b'/' => output.push('/'),
+                        b'b' => output.push('\u{0008}'),
+                        b'f' => output.push('\u{000c}'),
+                        b'n' => output.push('\n'),
+                        b'r' => output.push('\r'),
+                        b't' => output.push('\t'),
+                        b'u' => output.push(self.unicode_escape()?),
+                        _ => return Err(invalid_replay("unsupported event string escape")),
+                    }
+                }
+                0x00..=0x1f => return Err(invalid_replay("unescaped control in event string")),
+                0x20..=0x7f => {
+                    output.push(byte as char);
+                    self.offset += 1;
+                }
+                _ => {
+                    let text = std::str::from_utf8(&self.bytes[self.offset..])
+                        .map_err(|_| invalid_replay("event string is not UTF-8"))?;
+                    let character = text
+                        .chars()
+                        .next()
+                        .ok_or_else(|| invalid_replay("event string is not UTF-8"))?;
+                    output.push(character);
+                    self.offset += character.len_utf8();
+                }
+            }
+        }
+    }
+
+    fn unicode_escape(&mut self) -> Result<char> {
+        let high = self.hex_quad()?;
+        let scalar = match high {
+            0xd800..=0xdbff => {
+                if !self.consume(b'\\') || !self.consume(b'u') {
+                    return Err(invalid_replay("unpaired high surrogate in event string"));
+                }
+                let low = self.hex_quad()?;
+                if !(0xdc00..=0xdfff).contains(&low) {
+                    return Err(invalid_replay("invalid low surrogate in event string"));
+                }
+                0x10000 + (((high as u32 - 0xd800) << 10) | (low as u32 - 0xdc00))
+            }
+            0xdc00..=0xdfff => {
+                return Err(invalid_replay("unpaired low surrogate in event string"));
+            }
+            value => value as u32,
+        };
+        char::from_u32(scalar).ok_or_else(|| invalid_replay("invalid unicode event escape"))
+    }
+
+    fn hex_quad(&mut self) -> Result<u16> {
+        let digits = self
+            .bytes
+            .get(self.offset..self.offset + 4)
+            .ok_or_else(|| invalid_replay("short unicode event escape"))?;
+        let digits = std::str::from_utf8(digits)
+            .ok()
+            .and_then(|digits| u16::from_str_radix(digits, 16).ok())
+            .ok_or_else(|| invalid_replay("invalid unicode event escape"))?;
+        self.offset += 4;
+        Ok(digits)
+    }
 }
 
 fn configuration_line<'a>(configuration: &'a str, prefix: &str) -> Option<&'a str> {
@@ -446,65 +672,6 @@ fn input_range(payload: &str, name: &str) -> Result<(usize, usize)> {
     Ok((offset, end))
 }
 
-fn json_number(line: &str, name: &str) -> Option<u128> {
-    let prefix = format!("\"{name}\":");
-    let value = line.split_once(&prefix)?.1;
-    let digits = value
-        .bytes()
-        .take_while(u8::is_ascii_digit)
-        .collect::<Vec<_>>();
-    (!digits.is_empty()).then(|| std::str::from_utf8(&digits).ok()?.parse().ok())?
-}
-
-fn json_string(line: &str, name: &str) -> Result<String> {
-    let prefix = format!("\"{name}\":\"");
-    let bytes = line
-        .split_once(&prefix)
-        .ok_or_else(|| invalid_replay("event string field is absent"))?
-        .1
-        .as_bytes();
-    let mut decoded = Vec::new();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'"' => {
-                return String::from_utf8(decoded)
-                    .map_err(|_| invalid_replay("event string is not UTF-8"));
-            }
-            b'\\' => {
-                index += 1;
-                let escaped = *bytes
-                    .get(index)
-                    .ok_or_else(|| invalid_replay("unterminated event string escape"))?;
-                match escaped {
-                    b'"' => decoded.push(b'"'),
-                    b'\\' => decoded.push(b'\\'),
-                    b'n' => decoded.push(b'\n'),
-                    b'r' => decoded.push(b'\r'),
-                    b't' => decoded.push(b'\t'),
-                    b'u' => {
-                        let hex = bytes
-                            .get(index + 1..index + 5)
-                            .ok_or_else(|| invalid_replay("short unicode event escape"))?;
-                        let value = std::str::from_utf8(hex)
-                            .ok()
-                            .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-                            .and_then(char::from_u32)
-                            .ok_or_else(|| invalid_replay("invalid unicode event escape"))?;
-                        let mut encoded = [0; 4];
-                        decoded.extend_from_slice(value.encode_utf8(&mut encoded).as_bytes());
-                        index += 4;
-                    }
-                    _ => return Err(invalid_replay("unsupported event string escape")),
-                }
-            }
-            byte => decoded.push(byte),
-        }
-        index += 1;
-    }
-    Err(invalid_replay("unterminated event string"))
-}
-
 fn invalid_replay(detail: &'static str) -> PtyTestError {
     PtyTestError::Io {
         operation: detail,
@@ -580,6 +747,33 @@ mod tests {
 
         assert!(parse_events("{\"version\":2,\"sequence\":0,\"elapsed_ns\":0,\"kind\":\"read\",\"payload\":\"output-offset=0 output-length=0\"}\n").is_err());
         assert!(parse_events("{\"version\":1,\"sequence\":1,\"elapsed_ns\":0,\"kind\":\"read\",\"payload\":\"output-offset=0 output-length=0\"}\n").is_err());
+    }
+
+    #[test]
+    fn replay_rejects_incomplete_or_unknown_v1_event_records() {
+        let valid = event(0, "read", "output-offset=0 output-length=0");
+        for malformed in [
+            format!("{valid} trailing"),
+            valid.replace("\"sequence\":0", "\"sequence\":0,\"extra\":true"),
+            valid.replace("\"sequence\":0", "\"sequence\":0,\"version\":1"),
+        ] {
+            assert!(parse_events(&malformed).is_err(), "accepted {malformed:?}");
+        }
+
+        let unknown_kind = event(0, "future-event", "");
+        assert!(parse_events(&unknown_kind).is_err());
+
+        let cleanup_error = event(0, "cleanup-error", "process group did not drain");
+        assert!(parse_events(&cleanup_error).is_ok());
+    }
+
+    #[test]
+    fn replay_decodes_valid_json_escapes_in_event_strings() {
+        let parsed = parse_events(
+            r#"{"version":1,"sequence":0,"elapsed_ns":0,"kind":"predicate","payload":"quoted: \"hello\"\n"}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed[0].payload, "quoted: \"hello\"\n");
     }
 
     fn event(sequence: u64, kind: &str, payload: &str) -> String {

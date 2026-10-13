@@ -208,28 +208,59 @@ fn signal_darwin_group_members(process_group: libc::pid_t, signal: libc::c_int) 
 
 #[cfg(target_os = "macos")]
 fn darwin_group_members(process_group: libc::pid_t) -> Result<Vec<libc::pid_t>> {
-    let byte_count = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
-    if byte_count < 0 {
-        return Err(system("proc_listallpids size"));
-    }
-    if byte_count == 0 {
-        return Ok(Vec::new());
-    }
-    let pid_bytes = std::mem::size_of::<libc::pid_t>();
-    let slots = (byte_count as usize).div_ceil(pid_bytes).saturating_add(8);
-    let mut members = vec![0; slots];
-    let written = unsafe {
-        proc_listallpids(
-            members.as_mut_ptr().cast(),
-            (members.len() * pid_bytes) as libc::c_int,
-        )
-    };
-    if written < 0 {
-        return Err(system("proc_listallpids members"));
-    }
-    members.truncate((written as usize) / pid_bytes);
+    let mut members = list_all_processes()?;
     members.retain(|pid| *pid > 0 && unsafe { libc::getpgid(*pid) } == process_group);
     Ok(members)
+}
+
+#[cfg(target_os = "macos")]
+fn list_all_processes() -> Result<Vec<libc::pid_t>> {
+    // proc_listallpids reports a PID count, while its capacity argument is
+    // measured in bytes. The process table can grow after the sizing query,
+    // so a completely filled buffer must be retried with more room.
+    let reported = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
+    if reported < 0 {
+        return Err(system("proc_listallpids size"));
+    }
+    let mut capacity = usize::try_from(reported)
+        .unwrap_or(0)
+        .max(1);
+    loop {
+        let byte_capacity = capacity
+            .checked_mul(std::mem::size_of::<libc::pid_t>())
+            .filter(|bytes| *bytes <= libc::c_int::MAX as usize)
+            .ok_or(PtyTestError::System {
+                operation: "proc_listallpids capacity overflow",
+                errno: libc::EOVERFLOW,
+            })?;
+        let mut pids = vec![0; capacity];
+        let written = unsafe { proc_listallpids(pids.as_mut_ptr().cast(), byte_capacity as _) };
+        if written < 0 {
+            return Err(system("proc_listallpids members"));
+        }
+        let written = written as usize;
+        if written < capacity {
+            pids.truncate(written);
+            return Ok(pids);
+        }
+        capacity = capacity
+            .checked_mul(2)
+            .ok_or(PtyTestError::System {
+                operation: "proc_listallpids capacity overflow",
+                errno: libc::EOVERFLOW,
+            })?;
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod darwin_tests {
+    use super::list_all_processes;
+
+    #[test]
+    fn process_list_includes_current_process() {
+        let pids = list_all_processes().expect("enumerate current processes");
+        assert!(pids.contains(&unsafe { libc::getpid() }));
+    }
 }
 
 /// Observes an exit without consuming the child's wait status.

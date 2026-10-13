@@ -58,6 +58,16 @@ impl Deadline {
         }
     }
 
+    pub(crate) fn bounded_after(self, duration: Duration) -> Option<Self> {
+        let started_at = Instant::now();
+        let remaining = self.instant.checked_duration_since(started_at)?;
+        Some(Self {
+            instant: started_at + duration.min(remaining),
+            configured_for: None,
+            started_at,
+        })
+    }
+
     pub(crate) fn remaining(self) -> Option<Duration> {
         self.instant.checked_duration_since(Instant::now())
     }

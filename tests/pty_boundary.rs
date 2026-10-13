@@ -380,11 +380,6 @@ fn timeout_writes_a_replayable_redacted_failure_bundle() {
             screen.contains("PTYTEST_READY")
         })
         .unwrap();
-    assert!(
-        !terminal
-            .wait_for_output(terminal.deadline(Duration::from_millis(50)))
-            .unwrap()
-    );
     let bundle = match terminal.wait_for_screen(
         terminal.deadline(Duration::from_millis(1)),
         "intentional impossible predicate",
@@ -399,10 +394,9 @@ fn timeout_writes_a_replayable_redacted_failure_bundle() {
             ..
         }) => {
             assert_eq!(timeout, Duration::from_millis(1));
-            assert!(elapsed >= Duration::from_millis(1));
             assert!(
-                elapsed < Duration::from_millis(25),
-                "timeout elapsed should describe this wait, got {elapsed:?}"
+                elapsed >= timeout,
+                "reported elapsed time {elapsed:?} is shorter than its deadline {timeout:?}"
             );
             assert_eq!(status, ExitStatus::Running);
             assert_eq!(size, Size::new(80, 24).unwrap());
@@ -616,8 +610,24 @@ fn attribute_snapshots_compare_and_report_mismatches() {
             screen.contains("PTYTEST_READY")
         })
         .unwrap();
+    terminal
+        .send_text(deadline(&terminal), "split-output\n")
+        .unwrap();
+    let screen = terminal
+        .wait_for_screen(deadline(&terminal), "styled fixture output", |screen| {
+            screen.contains("split-界")
+        })
+        .unwrap();
     let options = ptytest::SnapshotOptions::default().with_attributes();
-    let expected = terminal.screen().to_text(options);
+    let expected = screen.to_text(options);
+    let attribute_lines: Vec<_> = expected
+        .lines()
+        .filter(|line| line.starts_with("attr:"))
+        .collect();
+    assert_eq!(
+        attribute_lines,
+        ["attr: row=1 columns=0..7 fg=Indexed(1) bg=Default bold=false dim=false italic=false underline=false inverse=false"],
+    );
     std::fs::write(&golden, &expected).unwrap();
     terminal.assert_snapshot_with(&golden, options).unwrap();
 

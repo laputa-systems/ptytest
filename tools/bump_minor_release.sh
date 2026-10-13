@@ -204,7 +204,9 @@ case "$newline$existing_tags$newline" in
     *"$newline$next_tag$newline"*) fail "tag $next_tag already exists away from the release commit" ;;
 esac
 
-backup_dir_candidate=${TMPDIR:-/tmp}/bump_minor_release.$$
+backup_parent=${TMPDIR:-$ROOT/.work/tmp}
+mkdir -p "$backup_parent" || fail "could not create release scratch directory: $backup_parent"
+backup_dir_candidate=$backup_parent/bump_minor_release.$$
 (umask 077 && mkdir "$backup_dir_candidate") || fail "could not create private release backups"
 backup_dir=$backup_dir_candidate
 cp -p "$MANIFEST" "$backup_dir/Cargo.toml" || fail "could not back up Cargo.toml"
