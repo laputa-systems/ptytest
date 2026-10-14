@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R4 · P2 · Active I/O and interrupted polls can outlive their deadline
-
-- **Area:** Concurrency
-- **Where:** `src/io.rs:493-500`, `src/io.rs:535-568`, `src/io.rs:600-628`, `src/io.rs:632-648`
-- **Problem:** **Unproven on the local macOS host:** successful reads and writes loop without checking the deadline, and poll retries reuse the timeout computed before `EINTR`. A continuously readable PTY can therefore keep a wait in `read_available` past its deadline; repeated interrupted polls can also extend the wait. The local signal-pulse probe did not reproduce an overrun on macOS.
-- **Recommendation:** Check deadline expiry during progress loops and recompute the remaining poll timeout after each interruption; cover continuous output and interruption in focused regressions.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** M (days)
-
 ### R5 · P3 · Replay accepts unknown event kinds as valid traces
 
 - **Area:** Data
