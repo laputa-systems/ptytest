@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R5 · P3 · Replay accepts unknown event kinds as valid traces
-
-- **Area:** Data
-- **Where:** `src/replay.rs:161-215`, `src/replay.rs:334-367`, `src/replay.rs:449-465`
-- **Problem:** The event parser extracts fields by substring instead of validating a complete JSON record, and the replay match silently ignores unknown event kinds. A malformed or unsupported v1 record can therefore produce a successful but incomplete semantic replay.
-- **Recommendation:** Validate each record against the v1 event schema and reject unknown event kinds.
-- **Fix with:** durable-state
-- **Effort:** M (days)
-
 ### R6 · P3 · Parallel snapshot updates share one temporary file
 
 - **Area:** Data
