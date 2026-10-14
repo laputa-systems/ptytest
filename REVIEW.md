@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R9 · P3 · Attribute snapshot coverage does not pin serialized styles
-
-- **Area:** Tests
-- **Where:** `tests/pty_boundary.rs:613-626`, `src/terminal.rs:195-210`
-- **Problem:** The integration golden is generated from the same unstyled screen it compares, while the unit test checks only that an attribute range exists. Incorrect serialized style values can pass both tests.
-- **Recommendation:** Serialize a styled screen and assert the literal attribute range and style values.
-- **Fix with:** test-audit
-- **Effort:** S (hours)
-
 ### R10 · P3 · Timeout test has a host-scheduling upper bound
 
 - **Area:** Tests
