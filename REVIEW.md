@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R6 · P3 · Parallel snapshot updates share one temporary file
-
-- **Area:** Data
-- **Where:** `src/io.rs:875-888`
-- **Problem:** Snapshot updates in one process derive the same temporary path from the destination name and PID. Parallel tests updating the same snapshot can truncate or rename each other's temporary file, causing a failed update or selecting whichever contents won the race.
-- **Recommendation:** Create a unique temporary file for every update and remove it if replacement fails.
-- **Fix with:** durable-state
-- **Effort:** S (hours)
-
 ### R7 · P3 · The lint target applies fixes to the worktree
 
 - **Area:** Build
