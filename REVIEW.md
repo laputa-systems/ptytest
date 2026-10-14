@@ -4,18 +4,7 @@ Scope: crate source, tests, documentation, CI, and release tooling. Checks run: 
 
 ## Summary
 
-The crate has a clear boundary between real PTY I/O, the independent screen model, and protocol validation. The main reliability risks are in process cleanup and wait semantics: reachable trace failures can leave a child alive, Darwin cleanup enumerates only a fraction of host processes, and quiescence can return true too early. The documentation now routes end users and maintainers to the right level of detail, while the build, test, and release commands are directly represented.
-
-## Findings
-
-### R11 · P3 · Replay CLI treats `--help` as a bundle path
-
-- **Area:** Operability
-- **Where:** `src/bin/ptytest-replay.rs:5-8`, `src/bin/ptytest-replay.rs:42-70`
-- **Problem:** The first argument is always parsed as a failure-bundle path. Running `ptytest-replay --help` tries to read `--help/configuration.txt` and returns a path error instead of usage.
-- **Recommendation:** Handle `--help` before parsing the bundle path and print the usage text with a successful exit status.
-- **Fix with:** none
-- **Effort:** S (hours)
+The crate keeps real PTY I/O separate from the screen model and protocol validation. The reliability issues identified by this review are resolved in the current tree: process cleanup continues through terminal-processing failures, process enumeration handles complete lists, quiescence and I/O honor deadlines, replay validates event records, snapshot updates use unique temporary files, and the CLI and maintainer commands follow their expected behavior. Focused regressions cover the behavior changes. Documentation routes end users and maintainers to the right level of detail, while build and release commands are documented.
 
 ## Strengths to keep
 
