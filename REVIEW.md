@@ -4,7 +4,18 @@ Scope: crate source, tests, documentation, CI, and release tooling. Checks run: 
 
 ## Summary
 
-The crate keeps real PTY I/O separate from the screen model and protocol validation. The reliability issues identified by this review are resolved in the current tree: process cleanup continues through terminal-processing failures, process enumeration handles complete lists, quiescence and I/O honor deadlines, replay validates event records, snapshot updates use unique temporary files, and the CLI and maintainer commands follow their expected behavior. Focused regressions cover the behavior changes. Documentation routes end users and maintainers to the right level of detail, while build and release commands are documented.
+The crate keeps real PTY I/O separate from the screen model and protocol validation. The reliability findings from this review are resolved in the current tree: process cleanup continues through terminal-processing failures, process enumeration handles complete lists, quiescence and I/O honor deadlines, replay validates event records, snapshot updates use unique temporary files, and the CLI and maintainer commands follow their expected behavior. Focused regressions cover those changes. R12 tracks deterministic coverage for the Darwin process-list retry path. Documentation routes end users and maintainers to the right level of detail, while build and release commands are documented.
+
+## Findings
+
+### R12 · P3 · Darwin process-list retries lack deterministic coverage
+
+- **Area:** Tests
+- **Where:** `src/unix.rs:221-263`
+- **Problem:** The Darwin process-list test only checks that enumeration includes the current process. It does not force a full buffer or verify that the returned PID count controls truncation, so the retry and truncation branches that protect descendant cleanup can regress without a deterministic failure.
+- **Recommendation:** Exercise the capacity and returned-count decisions with controlled values so tests cover a full-buffer retry and truncation without relying on live process-table growth.
+- **Fix with:** isolate-effects
+- **Effort:** S (hours)
 
 ## Strengths to keep
 
