@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R10 · P3 · Timeout test has a host-scheduling upper bound
-
-- **Area:** Tests
-- **Where:** `tests/pty_boundary.rs:388-406`
-- **Problem:** The test fails if a 1 ms timeout reports more than 25 ms. A scheduler pause can exceed that threshold even when timeout behavior is correct, making CI depend on host load.
-- **Recommendation:** Verify elapsed-time semantics with a controllable clock, or remove the tight upper bound while retaining the deadline regression check.
-- **Fix with:** test-audit
-- **Effort:** M (days)
-
 ### R11 · P3 · Replay CLI treats `--help` as a bundle path
 
 - **Area:** Operability
