@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R8 · P3 · Release recovery backups default to `/tmp`
-
-- **Area:** Operability
-- **Where:** `tools/bump_minor_release.sh:207-211`
-- **Problem:** When `TMPDIR` is unset, release backups go to `/tmp`. That conflicts with the repository working-file rule and can lose recovery copies on hosts where `/tmp` is RAM-backed or cleared on reboot.
-- **Recommendation:** Store the backups under ignored `.work/tmp`, or require a suitable caller-provided `TMPDIR`.
-- **Fix with:** os-boundaries
-- **Effort:** S (hours)
-
 ### R9 · P3 · Attribute snapshot coverage does not pin serialized styles
 
 - **Area:** Tests
