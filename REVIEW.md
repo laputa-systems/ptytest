@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R3 · P2 · Quiescence succeeds before the requested idle interval
-
-- **Area:** Concurrency
-- **Where:** `src/io.rs:319-329`, `src/io.rs:592-603`, `src/io.rs:616-622`
-- **Problem:** `poll` returns success for a timeout, and each poll is capped at 25 ms. `wait_for_quiescence` treats one no-output poll as success without checking that `quiet` elapsed. A macOS probe requested 500 ms of quiet and got `true` after 25 ms; callers can continue before an application's later output arrives.
-- **Recommendation:** Continue polling until the quiet interval elapses, and return `false` when the overall deadline wins.
-- **Fix with:** isolate-effects
-- **Effort:** S (hours)
-
 ### R4 · P2 · Active I/O and interrupted polls can outlive their deadline
 
 - **Area:** Concurrency
