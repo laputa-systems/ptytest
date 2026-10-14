@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R7 · P3 · The lint target applies fixes to the worktree
-
-- **Area:** Build
-- **Where:** `Makefile:6-7`
-- **Problem:** `make lint` runs `cargo clippy --fix --allow-dirty` across all targets and features. A routine lint command can rewrite tracked files, including in a dirty worktree.
-- **Recommendation:** Make `lint` check-only and put autofixes behind a separately named explicit target if needed.
-- **Fix with:** none
-- **Effort:** S (hours)
-
 ### R8 · P3 · Release recovery backups default to `/tmp`
 
 - **Area:** Operability
