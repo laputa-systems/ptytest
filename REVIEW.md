@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R2 · P1 · Darwin process enumeration truncates the cleanup group
-
-- **Area:** Concurrency
-- **Where:** `src/unix.rs:211-230`
-- **Problem:** `proc_listallpids` returns a PID count, but the code treats it as a byte count to size `members` and divides the returned count by `sizeof(pid_t)` again when truncating. A macOS probe saw 817 PIDs, allocated 213 slots, and retained only 53 of the 213 returned PIDs. If a descendant is outside that prefix, group inspection can report that it exited and the EPERM signal fallback can miss it, leaving it alive when the leader is reaped.
-- **Recommendation:** Allocate by PID count, truncate by the returned PID count, and retry if the process list fills the buffer.
-- **Fix with:** os-boundaries
-- **Effort:** S (hours)
-
 ### R3 · P2 · Quiescence succeeds before the requested idle interval
 
 - **Area:** Concurrency
