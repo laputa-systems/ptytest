@@ -8,15 +8,6 @@ The crate has a clear boundary between real PTY I/O, the independent screen mode
 
 ## Findings
 
-### R1 · P1 · Output-processing errors can bypass process cleanup
-
-- **Area:** Concurrency
-- **Where:** `src/io.rs:671-683`, `src/io.rs:700-705`, `src/io.rs:795-804`
-- **Problem:** `cleanup` propagates `read_available` errors before sending `SIGTERM` or reaping the child. Trace overflow and protocol violations can trigger that error; `Drop` then discards the cleanup error. A focused macOS probe used a child that ignored `SIGHUP`, exceeded the trace limit, and confirmed it was still running after `PtyTest` was dropped.
-- **Recommendation:** Preserve the terminal-processing failure while continuing bounded signal escalation and child reaping.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** M (days)
-
 ### R2 · P1 · Darwin process enumeration truncates the cleanup group
 
 - **Area:** Concurrency
