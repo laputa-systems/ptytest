@@ -215,10 +215,19 @@ fn darwin_group_members(process_group: libc::pid_t) -> Result<Vec<libc::pid_t>> 
 
 #[cfg(target_os = "macos")]
 fn list_all_processes() -> Result<Vec<libc::pid_t>> {
+    list_all_processes_with(|buffer, buffersize| unsafe {
+        proc_listallpids(buffer, buffersize)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn list_all_processes_with(
+    mut list: impl FnMut(*mut libc::c_void, libc::c_int) -> libc::c_int,
+) -> Result<Vec<libc::pid_t>> {
     // proc_listallpids reports a PID count, while its capacity argument is
     // measured in bytes. The process table can grow after the sizing query,
     // so a completely filled buffer must be retried with more room.
-    let reported = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
+    let reported = list(std::ptr::null_mut(), 0);
     if reported < 0 {
         return Err(system("proc_listallpids size"));
     }
@@ -234,7 +243,7 @@ fn list_all_processes() -> Result<Vec<libc::pid_t>> {
                 errno: libc::EOVERFLOW,
             })?;
         let mut pids = vec![0; capacity];
-        let written = unsafe { proc_listallpids(pids.as_mut_ptr().cast(), byte_capacity as _) };
+        let written = list(pids.as_mut_ptr().cast(), byte_capacity as _);
         if written < 0 {
             return Err(system("proc_listallpids members"));
         }
@@ -254,7 +263,54 @@ fn list_all_processes() -> Result<Vec<libc::pid_t>> {
 
 #[cfg(all(test, target_os = "macos"))]
 mod darwin_tests {
-    use super::list_all_processes;
+    use super::{list_all_processes, list_all_processes_with};
+    use std::mem::size_of;
+    use std::ptr;
+
+    fn write_pids(buffer: *mut libc::c_void, buffersize: libc::c_int, pids: &[libc::pid_t]) {
+        let capacity = buffersize as usize / size_of::<libc::pid_t>();
+        assert!(!buffer.is_null());
+        assert!(capacity >= pids.len());
+        unsafe { ptr::copy_nonoverlapping(pids.as_ptr(), buffer.cast(), pids.len()) };
+    }
+
+    #[test]
+    fn process_list_retries_each_full_buffer() {
+        let mut capacities = Vec::new();
+        let mut call = 0;
+        let pids = list_all_processes_with(|buffer, buffersize| {
+            if buffer.is_null() {
+                return 1;
+            }
+            capacities.push(buffersize as usize / size_of::<libc::pid_t>());
+            let (written, result) = match call {
+                0 => (1, &[11][..]),
+                1 => (2, &[21, 22][..]),
+                _ => (3, &[31, 32, 33][..]),
+            };
+            write_pids(buffer, buffersize, result);
+            call += 1;
+            written
+        })
+        .expect("enumerate scripted process list");
+
+        assert_eq!(capacities, [1, 2, 4]);
+        assert_eq!(pids, [31, 32, 33]);
+    }
+
+    #[test]
+    fn process_list_truncates_to_returned_pid_count() {
+        let pids = list_all_processes_with(|buffer, buffersize| {
+            if buffer.is_null() {
+                return 4;
+            }
+            write_pids(buffer, buffersize, &[41, 42]);
+            2
+        })
+        .expect("enumerate scripted process list");
+
+        assert_eq!(pids, [41, 42]);
+    }
 
     #[test]
     fn process_list_includes_current_process() {
