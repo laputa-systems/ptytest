@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+
 use crate::snapshot::{
     CellAttributes, Color, Cursor, MouseMode, ScreenSnapshot, TerminalModes, TerminalState,
     cell_snapshot,
@@ -12,7 +14,7 @@ pub(crate) struct TerminalBackend {
 impl TerminalBackend {
     pub(crate) fn new(size: Size) -> Self {
         Self {
-            parser: vt100::Parser::new(size.rows(), size.columns(), 0),
+            parser: vt100::Parser::new(nonzero(size.rows()), nonzero(size.columns()), 0),
         }
     }
 
@@ -23,7 +25,7 @@ impl TerminalBackend {
     pub(crate) fn resize(&mut self, size: Size) {
         self.parser
             .screen_mut()
-            .set_size(size.rows(), size.columns());
+            .set_size(nonzero(size.rows()), nonzero(size.columns()));
     }
 
     /// Cursor row and column without copying the screen. The protocol peer
@@ -34,7 +36,7 @@ impl TerminalBackend {
 
     fn size(&self) -> Result<Size> {
         let (rows, columns) = self.parser.screen().size();
-        Size::new(columns, rows)
+        Size::new(columns.get(), rows.get())
     }
 
     fn cursor(&self) -> Cursor {
@@ -68,16 +70,16 @@ impl TerminalBackend {
     fn row_wrapped(&self) -> Vec<bool> {
         let screen = self.parser.screen();
         let (rows, _) = screen.size();
-        (0..rows).map(|row| screen.row_wrapped(row)).collect()
+        (0..rows.get()).map(|row| screen.row_wrapped(row)).collect()
     }
 
     pub(crate) fn snapshot(&self) -> Result<ScreenSnapshot> {
         let screen = self.parser.screen();
         let (rows, columns) = screen.size();
         let size = self.size()?;
-        let screen_rows = (0..rows)
+        let screen_rows = (0..rows.get())
             .map(|row| {
-                (0..columns)
+                (0..columns.get())
                     .map(|column| {
                         let cell = screen
                             .cell(row, column)
@@ -121,6 +123,10 @@ impl TerminalBackend {
             self.parser.screen().scrollback(),
         ))
     }
+}
+
+fn nonzero(value: u16) -> NonZeroU16 {
+    NonZeroU16::new(value).expect("Size guarantees non-zero dimensions")
 }
 
 fn map_color(color: vt100::Color) -> Color {
@@ -408,7 +414,7 @@ mod tests {
                 );
                 panic!(
                     "terminal-model disagreement in {} after operation {operation_index}: {description}\n\
-                     primary=vt100 0.16.2 reference=alacritty_terminal 0.26.0\n\
+                     primary=vt100 0.18.1 reference=alacritty_terminal 0.26.0\n\
                      artifact={}\nprimary state:\n{primary_state:#?}\nreference state:\n{reference_state:#?}",
                     trace.name,
                     artifact_dir.display(),
@@ -629,7 +635,7 @@ mod tests {
             .join(format!("{}-{}", trace.name, std::process::id()));
         let _ = fs::create_dir_all(&directory);
         let metadata = format!(
-            "trace={}\noperation={}\nevent={}\nprimary=vt100 0.16.2\nreference=alacritty_terminal 0.26.0\n\nevents:\n{}\n",
+            "trace={}\noperation={}\nevent={}\nprimary=vt100 0.18.1\nreference=alacritty_terminal 0.26.0\n\nevents:\n{}\n",
             trace.name,
             operation_index,
             description,

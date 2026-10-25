@@ -14,7 +14,7 @@ name = "ptytest"
 
 [dependencies]
 libc = "0.2"
-vt100 = "0.16.2"
+vt100 = "0.18"
 
 [dev-dependencies]
 alacritty_terminal = "0.26.0"

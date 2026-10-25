@@ -13,4 +13,4 @@ Each output chunk advances three independent views: the exact raw trace, a proto
 - `src/protocol.rs` owns profile validation and deterministic terminal-query replies.
 - `src/artifact.rs` writes failure evidence; `src/replay.rs` reconstructs it offline.
 
-The runtime dependencies are `libc` and `vt100 = 0.16.2`. `alacritty_terminal` is used only by the differential test oracle. Windows/ConPTY, remote connections, shell parsing, GUI or pixel output, fonts, mouse abstraction, recording/GIF output, asynchronous APIs, and soft-wrap reflow are outside the current contract.
+The runtime dependencies are `libc` and `vt100 = 0.18`. `alacritty_terminal` is used only by the differential test oracle. Windows/ConPTY, remote connections, shell parsing, GUI or pixel output, fonts, mouse abstraction, recording/GIF output, asynchronous APIs, and soft-wrap reflow are outside the current contract.

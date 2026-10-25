@@ -2,7 +2,7 @@
 
 Each file records exact output chunks (`bytes:`, hexadecimal) and resize
 operations (`resize: columns rows`). `src/terminal.rs` replays the same chunks
-through `vt100 0.16.2` and `alacritty_terminal 0.26.0`; a second test compares
+through `vt100 0.18.1` and `alacritty_terminal 0.26.0`; a second test compares
 the primary backend's final snapshots to `canonical-vt100.ptytest` on macOS
 and Linux.
 
