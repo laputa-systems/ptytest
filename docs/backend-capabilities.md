@@ -1,6 +1,6 @@
 # Terminal backend capabilities
 
-`ptytest`'s v1 semantic backend is `vt100 0.16.2`, behind the private
+`ptytest`'s v1 semantic backend is `vt100 0.18.1`, behind the private
 `TerminalBackend` in `src/terminal.rs`. `ScreenSnapshot` and `TerminalState`
 expose only state that this backend represents faithfully.
 
