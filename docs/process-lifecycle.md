@@ -2,7 +2,7 @@
 
 ## Spawn
 
-The parent prepares the `execve` arguments and environment, opens the PTY at the requested size, and creates a close-on-exec error pipe before `fork`. The child closes the master, creates a session and controlling terminal, assigns and verifies foreground-process-group ownership, connects the slave to standard input/output/error, changes directory, and calls `execve`. Setup failures send a fixed error record and exit; the parent distinguishes them from an application exit. The session-leading child PID is retained as the original process-group identity.
+The parent prepares the `execve` arguments and environment, opens the PTY at the requested size, and creates a close-on-exec error pipe before `fork`. The child closes the master, creates a session and controlling terminal, assigns and verifies foreground-process-group ownership, connects the slave to standard input/output/error, closes every descriptor above standard error except that error pipe, changes directory, restores `SIGPIPE` to the default disposition, and calls `execve`. Setup failures send a fixed error record and exit; the parent distinguishes them from an application exit. The session-leading child PID is retained as the original process-group identity.
 
 Only `src/unix.rs` owns platform FFI details. Linux links `openpty` through `libutil`; Darwin uses `libproc` when group signaling needs a member-by-member fallback.
 

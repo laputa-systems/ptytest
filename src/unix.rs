@@ -545,10 +545,14 @@ unsafe fn child_exec(master: RawFd, slave: RawFd, error_fd: RawFd, prepared: &Pr
     if slave > libc::STDERR_FILENO && unsafe { libc::close(slave) } < 0 {
         unsafe { child_error(error_fd, 7) }
     }
+    unsafe { close_inherited_descriptors(error_fd) };
     if let Some(current_dir) = &prepared.current_dir
         && unsafe { libc::chdir(current_dir.as_ptr()) } < 0
     {
         unsafe { child_error(error_fd, 8) }
+    }
+    if unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) } == libc::SIG_ERR {
+        unsafe { child_error(error_fd, 10) }
     }
     unsafe {
         libc::execve(
@@ -558,6 +562,91 @@ unsafe fn child_exec(master: RawFd, slave: RawFd, error_fd: RawFd, prepared: &Pr
         );
         child_error(error_fd, 9)
     }
+}
+
+unsafe fn close_inherited_descriptors(error_fd: RawFd) {
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+    if unsafe { close_inherited_descriptors_fast(error_fd) } {
+        return;
+    }
+    if !unsafe { close_through_limit(error_fd) } {
+        unsafe { child_error(error_fd, 11) }
+    }
+}
+
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_env = "gnu")))]
+unsafe fn close_inherited_descriptors_fast(error_fd: RawFd) -> bool {
+    #[cfg(target_os = "macos")]
+    return unsafe { close_listed_descriptors(error_fd) };
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    return unsafe { close_range_except(error_fd) };
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn close_listed_descriptors(error_fd: RawFd) -> bool {
+    const CAPACITY: usize = 1024;
+    let mut listed = [libc::proc_fdinfo {
+        proc_fd: -1,
+        proc_fdtype: 0,
+    }; CAPACITY];
+    let capacity = std::mem::size_of_val(&listed) as libc::c_int;
+    let written = unsafe {
+        libc::proc_pidinfo(
+            libc::getpid(),
+            libc::PROC_PIDLISTFDS,
+            0,
+            listed.as_mut_ptr().cast(),
+            capacity,
+        )
+    };
+    if written <= 0 || written >= capacity {
+        return false;
+    }
+    let count = written as usize / std::mem::size_of::<libc::proc_fdinfo>();
+    for info in &listed[..count] {
+        let fd = info.proc_fd;
+        if fd > libc::STDERR_FILENO && fd != error_fd {
+            unsafe { libc::close(fd) };
+        }
+    }
+    true
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+unsafe fn close_range_except(error_fd: RawFd) -> bool {
+    let lowest = (libc::STDERR_FILENO + 1) as libc::c_uint;
+    let Ok(error_fd) = libc::c_uint::try_from(error_fd) else {
+        return false;
+    };
+    if error_fd > lowest && unsafe { libc::close_range(lowest, error_fd - 1, 0) } != 0 {
+        return false;
+    }
+    if error_fd < libc::c_uint::MAX
+        && unsafe { libc::close_range(error_fd + 1, libc::c_uint::MAX, 0) } != 0
+    {
+        return false;
+    }
+    true
+}
+
+unsafe fn close_through_limit(error_fd: RawFd) -> bool {
+    let mut limit = MaybeUninit::<libc::rlimit>::uninit();
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, limit.as_mut_ptr()) } != 0 {
+        return false;
+    }
+    let cur = unsafe { limit.assume_init() }.rlim_cur;
+    if cur == libc::RLIM_INFINITY {
+        return false;
+    }
+    let Ok(limit) = RawFd::try_from(cur) else {
+        return false;
+    };
+    for fd in (libc::STDERR_FILENO + 1)..limit {
+        if fd != error_fd {
+            unsafe { libc::close(fd) };
+        }
+    }
+    true
 }
 
 unsafe fn child_error(error_fd: RawFd, stage: i32) -> ! {
@@ -629,6 +718,8 @@ fn stage_name(stage: i32) -> &'static str {
         7 => "close original slave",
         8 => "chdir",
         9 => "execve",
+        10 => "restore SIGPIPE",
+        11 => "close inherited descriptors",
         _ => "unknown child setup stage",
     }
 }

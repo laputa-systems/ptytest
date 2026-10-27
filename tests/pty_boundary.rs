@@ -1,5 +1,7 @@
 use ptytest::{CommandSpec, ExitStatus, Key, ProtocolProfile, PtyTest, Scenario, Size, TestEnv};
-use std::path::Path;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 fn fixture() -> CommandSpec {
@@ -584,6 +586,103 @@ fn assert_bundle(bundle: &Path) {
             bundle.display()
         );
     }
+}
+
+#[test]
+fn spawned_program_cannot_fcntl_an_inherited_non_cloexec_pipe() {
+    let (read, _write) = non_cloexec_pipe();
+    let inherited = read.as_raw_fd();
+    let mut terminal = PtyTest::spawn(
+        scenario("inherited descriptor").command(spawn_probe().arg("fd").arg(inherited.to_string())),
+    )
+    .unwrap();
+    let screen = terminal
+        .wait_for_screen(
+            deadline(&terminal),
+            "inherited descriptor probe",
+            |screen| {
+                screen.contains("FD_CLOSED")
+                    || screen.contains("FD_OPEN")
+                    || screen.contains("FD_ERR")
+            },
+        )
+        .unwrap();
+    assert!(
+        screen.contains("FD_CLOSED"),
+        "child fcntl on inherited descriptor {inherited} succeeded"
+    );
+    assert_eq!(
+        terminal.wait_for_exit(deadline(&terminal)).unwrap(),
+        ExitStatus::Code(0)
+    );
+    terminal.finish(deadline(&terminal)).unwrap();
+}
+
+#[test]
+fn spawned_program_starts_with_default_sigpipe() {
+    let mut terminal =
+        PtyTest::spawn(scenario("default sigpipe").command(spawn_probe().arg("sigpipe"))).unwrap();
+    let screen = terminal
+        .wait_for_screen(
+            deadline(&terminal),
+            "SIGPIPE disposition probe",
+            |screen| {
+                screen.contains("SIGPIPE_DFL")
+                    || screen.contains("SIGPIPE_IGN")
+                    || screen.contains("SIGPIPE_OTHER")
+            },
+        )
+        .unwrap();
+    assert!(
+        screen.contains("SIGPIPE_DFL"),
+        "child started with a non-default SIGPIPE disposition"
+    );
+    assert_eq!(
+        terminal.wait_for_exit(deadline(&terminal)).unwrap(),
+        ExitStatus::Code(0)
+    );
+    terminal.finish(deadline(&terminal)).unwrap();
+}
+
+fn spawn_probe() -> CommandSpec {
+    CommandSpec::new(compiled_spawn_probe())
+}
+
+fn compiled_spawn_probe() -> &'static Path {
+    static PROBE: OnceLock<PathBuf> = OnceLock::new();
+    PROBE.get_or_init(|| {
+        let mut binary = std::env::current_exe().expect("test executable path");
+        binary.pop();
+        binary.pop();
+        binary.push("ptytest-spawn-probe");
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/spawn_probe.c");
+        let status = std::process::Command::new("cc")
+            .arg("-o")
+            .arg(&binary)
+            .arg(&source)
+            .status()
+            .expect("invoke cc for the spawn probe");
+        assert!(status.success(), "cc spawn probe exited {status}");
+        binary
+    })
+}
+
+fn non_cloexec_pipe() -> (OwnedFd, OwnedFd) {
+    let mut descriptors = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(descriptors.as_mut_ptr()) }, 0, "pipe");
+    for fd in descriptors {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0, "F_GETFD");
+        assert_eq!(
+            flags & libc::FD_CLOEXEC,
+            0,
+            "pipe was created close-on-exec"
+        );
+    }
+    (
+        unsafe { OwnedFd::from_raw_fd(descriptors[0]) },
+        unsafe { OwnedFd::from_raw_fd(descriptors[1]) },
+    )
 }
 
 fn descendant_pid(output: &[u8]) -> libc::pid_t {
