@@ -10,7 +10,7 @@ The package is published as `laputa-ptytest`; the library target is named
 
 ```toml
 [dev-dependencies]
-laputa-ptytest = "0.2"
+laputa-ptytest = "0.3"
 ```
 
 ## Use in a test
@@ -52,8 +52,7 @@ diagnostics redact `secret_env` values, while raw input/output files retain
 unredacted captured bytes up to the trace limit; use fake credentials. See
 [API details](docs/api.md) and [backend limits](docs/backend-capabilities.md).
 
-For API help, read the exported type documentation or visit the
-[project repository](https://github.com/laputa-systems/ptytest).
+Source and issue tracker: <https://github.com/laputa-systems/ptytest>.
 
 ## License
 

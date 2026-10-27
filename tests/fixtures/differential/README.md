@@ -17,6 +17,4 @@ and Linux.
 | `e-synchronized-redraw` | `e` `e2e` startup, commit `1b5ea3010277ccbb2ce4c165fd2e4eb8a18090a8`, output offset 54 | xterm synchronized-output bracket |
 | `ish-working-directory` | `ish` interactive PTY startup, commit `924b88384c5ac6bfb38f85b859fe3b2cbedd8e28`, output offset 8 | OSC 7 working-directory metadata |
 
-The consumer traces are deliberately retained as observed fragments, not
-expanded into a permission to admit new controls. See
-`docs/protocol-inventory.md` for the review decision behind each one.
+Admission decisions for these fragments are in [the protocol inventory](../../../docs/protocol-inventory.md).

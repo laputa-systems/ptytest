@@ -726,10 +726,6 @@ impl PtyTest {
             false
         };
 
-        // `waitid(WNOWAIT)` leaves the session leader unreaped, so the
-        // original process-group ID cannot be reused. It is therefore still
-        // safe to signal the entire group even when the leader is a zombie.
-        // Reaping first would lose that identity and could leak descendants.
         self.signal_cleanup_group(libc::SIGTERM)?;
         let remaining = deadline
             .remaining()

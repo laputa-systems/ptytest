@@ -6,7 +6,6 @@ use crate::snapshot::{
 };
 use crate::{Result, Size};
 
-/// Private boundary around the independent `vt100` terminal model.
 pub(crate) struct TerminalBackend {
     parser: vt100::Parser,
 }

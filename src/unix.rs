@@ -1,5 +1,3 @@
-//! The only module that owns Unix PTY/process details.
-
 use crate::config::{CommandSpec, ScenarioParts, Size, TestEnv};
 use crate::io::ExitStatus;
 use crate::{PtyTestError, Result};

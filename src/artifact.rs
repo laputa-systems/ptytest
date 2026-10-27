@@ -1,6 +1,3 @@
-//! Failure-bundle serialization lives here so lifecycle code never silently
-//! drops the evidence that explains a timeout or assertion failure.
-
 use crate::config::ScenarioParts;
 use crate::io::TraceEvent;
 use crate::snapshot::{ScreenSnapshot, TerminalState};
@@ -16,8 +13,6 @@ pub(crate) struct ArtifactWriter {
     root: Option<PathBuf>,
 }
 
-/// The evidence captured for one failure bundle. Grouping the related
-/// references keeps the bundle writer callable without a long argument list.
 pub(crate) struct FailureContext<'a> {
     pub(crate) scenario: &'a ScenarioParts,
     pub(crate) operation: &'a str,

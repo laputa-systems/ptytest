@@ -21,9 +21,9 @@ impl ProtocolProfile {
         }
     }
 
-    /// A deliberately small xterm-compatible contract for normal text,
-    /// cursor/editing operations, SGR, and lifecycle modes used by this crate.
-    /// OSC, DCS, and mouse extensions remain rejected.
+    /// Versioned xterm allowlist for text, cursor and erasure, SGR, and the
+    /// lifecycle, mouse, and OSC controls named in `docs/protocol-profiles.md`.
+    /// Unlisted controls, including other OSC and DCS sequences, are rejected.
     pub fn xterm_minimal_v1() -> Self {
         Self {
             name: "xterm-minimal-v1",
@@ -275,9 +275,6 @@ impl ProtocolScanner {
         if !self.profile.validation_enabled {
             return Ok(None);
         }
-        // ish's prompt publishes the current working directory using OSC 7;
-        // title metadata (OSC 0/2) is equally harmless to the modeled screen.
-        // All other OSC families, including clipboard access, remain denied.
         if family == "OSC"
             && (raw.starts_with(b"\x1b]0;")
                 || raw.starts_with(b"\x1b]2;")
@@ -346,9 +343,6 @@ fn allowed_csi(parameters: &[u8], final_byte: u8) -> bool {
         | b'M' | b'P' | b'S' | b'T' | b'X' | b'd' | b'm' | b'r' | b's' => parameters
             .iter()
             .all(|byte| matches!(byte, b'0'..=b'9' | b';')),
-        // tm turns off the optional kitty keyboard protocol on detach. This
-        // is an explicit observed contract, not a blanket admission of CSI
-        // intermediates or parameter prefixes.
         b'u' => parameters == b">0",
         b'h' | b'l' => {
             if let Some(parameters) = parameters.strip_prefix(b"?") {
@@ -356,9 +350,6 @@ fn allowed_csi(parameters: &[u8], final_byte: u8) -> bool {
                     matches!(
                         parameter,
                         b"1" | b"25" | b"47" | b"1047" | b"1048" | b"1049" | b"2004" | b"2026"
-                        // tm's attached client disables its xterm mouse
-                        // tracking before detach. The profile admits only
-                        // these DEC mouse selectors, not arbitrary modes.
                         | b"1000" | b"1002" | b"1003" | b"1004" | b"1006"
                     )
                 })
