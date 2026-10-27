@@ -22,7 +22,7 @@ Include a deterministic schedule seed in the scenario label so a failure bundle 
 
 ## Release
 
-`make publish` runs `tools/bump_minor_release.sh`. It checks Cargo registry ownership and the published package version, requires a clean working tree for a new release, updates the minor version, commits and tags it, and publishes through Cargo. It queries the default Cargo registry and requires network access. The script also handles retrying a release commit whose publish did not complete. Recovery copies go under `TMPDIR` when it is set, or `.work/tmp` otherwise.
+`make publish` runs `tools/bump_minor_release.sh`. It checks for a Cargo registry login before starting, then checks Cargo registry ownership and the published package version, requires a clean working tree for a new release, updates the minor version, commits and tags it, and publishes through Cargo. It queries the default Cargo registry and requires network access. The script also handles retrying a release commit whose publish did not complete. Recovery copies go under `TMPDIR` when it is set, or `.work/tmp` otherwise.
 
 ## Evidence
 

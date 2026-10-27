@@ -15,7 +15,7 @@ MANIFEST=$ROOT/Cargo.toml
 LOCKFILE=$ROOT/Cargo.lock
 cd "$ROOT"
 
-for command_name in awk cargo cp dirname git mkdir mv rm sed; do
+for command_name in awk cargo cp dirname git grep mkdir mv rm sed; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
 
@@ -60,8 +60,38 @@ on_exit() {
 trap 'on_exit $?' 0
 trap 'exit 1' HUP INT TERM
 
+ensure_registry_auth() {
+    # Preflight before any registry query or file edit: a missing login
+    # otherwise surfaces only at the first authenticated step. Ownership
+    # is still validated by the cargo owner check below before anything
+    # is edited.
+    if [ -n "${CARGO_REGISTRY_TOKEN:-}" ] || [ -n "${CARGO_REGISTRIES_CRATES_IO_TOKEN:-}" ]; then
+        return 0
+    fi
+    if [ -n "${CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS:-}" ]; then
+        return 0
+    fi
+    cargo_home=${CARGO_HOME:-$HOME/.cargo}
+    for config in "$cargo_home/config.toml" "$cargo_home/config"; do
+        if [ -f "$config" ] && grep -q 'credential.provider' "$config" 2>/dev/null; then
+            return 0
+        fi
+    done
+    for credentials in "$cargo_home/credentials.toml" "$cargo_home/credentials"; do
+        if [ -f "$credentials" ] && grep -q '^[[:space:]]*token[[:space:]]*=' "$credentials" 2>/dev/null; then
+            return 0
+        fi
+    done
+    fail "no Cargo registry token found; run \`cargo login\` (or set CARGO_REGISTRY_TOKEN) before publishing"
+}
+
+# Fail fast without a registry login before any registry query or file edit.
+ensure_registry_auth
+
 # Cargo checks registry ownership before the script edits either release file.
-cargo owner --list
+# Cargo output is captured so a successful check stays silent; failures
+# report it.
+owner_output=$(cargo owner --list 2>&1) || fail "could not verify ownership: $owner_output"
 
 package_metadata=$(awk '
     /^[ \t]*\[package\][ \t]*(#.*)?$/ { section = "package"; next }
@@ -100,7 +130,7 @@ package_name=$(printf '%s\n' "$package_metadata" | sed -n '1p')
 current_version=$(printf '%s\n' "$package_metadata" | sed -n '2p')
 [ -n "$package_name" ] && [ -n "$current_version" ] || fail "root package metadata is incomplete"
 
-published_metadata=$(cargo search "$package_name" --limit 1) || fail "could not query the default Cargo registry"
+published_metadata=$(cargo search "$package_name" --limit 1 2>&1) || fail "could not query the default Cargo registry for $package_name: $published_metadata"
 latest_version=$(printf '%s\n' "$published_metadata" | awk -v package_name="$package_name" '
     $1 == package_name && $2 == "=" && $3 ~ /^".+"$/ {
         version = substr($3, 2, length($3) - 2)
