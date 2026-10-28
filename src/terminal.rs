@@ -345,7 +345,7 @@ mod tests {
         application_keypad: bool,
         bracketed_paste: bool,
         cursor_visible: bool,
-        mouse_enabled: bool,
+        mouse: crate::snapshot::MouseMode,
     }
 
     #[derive(Debug, Eq, PartialEq)]
@@ -501,7 +501,7 @@ mod tests {
                 application_keypad: snapshot.modes().application_keypad,
                 bracketed_paste: snapshot.modes().bracketed_paste,
                 cursor_visible: snapshot.modes().cursor_visible,
-                mouse_enabled: snapshot.modes().mouse != crate::snapshot::MouseMode::Disabled,
+                mouse: snapshot.modes().mouse,
             },
             viewport: (0..snapshot.row_count())
                 .map(|row| NormalizedRow {
@@ -547,7 +547,7 @@ mod tests {
                 application_keypad: terminal.mode().contains(TermMode::APP_KEYPAD),
                 bracketed_paste: terminal.mode().contains(TermMode::BRACKETED_PASTE),
                 cursor_visible: terminal.mode().contains(TermMode::SHOW_CURSOR),
-                mouse_enabled: terminal.mode().intersects(TermMode::MOUSE_MODE),
+                mouse: alacritty_mouse_mode(*terminal.mode()),
             },
             viewport: (0..usize::from(size.rows()))
                 .map(|row| {
@@ -564,6 +564,18 @@ mod tests {
                     NormalizedRow { cells, wrapped }
                 })
                 .collect(),
+        }
+    }
+
+    fn alacritty_mouse_mode(mode: TermMode) -> crate::snapshot::MouseMode {
+        if mode.contains(TermMode::MOUSE_MOTION) {
+            crate::snapshot::MouseMode::AnyMotion
+        } else if mode.contains(TermMode::MOUSE_DRAG) {
+            crate::snapshot::MouseMode::ButtonMotion
+        } else if mode.contains(TermMode::MOUSE_REPORT_CLICK) {
+            crate::snapshot::MouseMode::PressRelease
+        } else {
+            crate::snapshot::MouseMode::Disabled
         }
     }
 
@@ -619,6 +631,85 @@ mod tests {
                 _ => crate::snapshot::Color::Default,
             },
         }
+    }
+
+    #[test]
+    fn mouse_reporting_levels_map_to_distinct_modes() {
+        let size = Size::new(12, 2).unwrap();
+        for (sequence, expected) in [
+            ("\x1b[?1000h", MouseMode::PressRelease),
+            ("\x1b[?1002h", MouseMode::ButtonMotion),
+            ("\x1b[?1003h", MouseMode::AnyMotion),
+        ] {
+            let mut terminal = TerminalBackend::new(size);
+            terminal.process(sequence.as_bytes());
+            assert_eq!(
+                terminal
+                    .snapshot()
+                    .expect("terminal snapshot is valid")
+                    .modes()
+                    .mouse,
+                expected,
+                "sequence {sequence:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn sgr_mouse_encoding_leaves_mouse_mode_unchanged() {
+        let size = Size::new(12, 2).unwrap();
+        let mut terminal = TerminalBackend::new(size);
+        terminal.process(b"\x1b[?1000h\x1b[?1006h");
+        assert_eq!(
+            terminal
+                .snapshot()
+                .expect("terminal snapshot is valid")
+                .modes()
+                .mouse,
+            MouseMode::PressRelease,
+        );
+        terminal.process(b"\x1b[?1006l");
+        assert_eq!(
+            terminal
+                .snapshot()
+                .expect("terminal snapshot is valid")
+                .modes()
+                .mouse,
+            MouseMode::PressRelease,
+        );
+        terminal.process(b"\x1b[?1000l");
+        assert_eq!(
+            terminal
+                .snapshot()
+                .expect("terminal snapshot is valid")
+                .modes()
+                .mouse,
+            MouseMode::Disabled,
+        );
+    }
+
+    #[test]
+    fn alacritty_mouse_flags_map_to_matching_modes() {
+        assert_eq!(
+            alacritty_mouse_mode(TermMode::MOUSE_REPORT_CLICK),
+            MouseMode::PressRelease,
+        );
+        assert_eq!(
+            alacritty_mouse_mode(TermMode::MOUSE_DRAG),
+            MouseMode::ButtonMotion,
+        );
+        assert_eq!(
+            alacritty_mouse_mode(TermMode::MOUSE_MOTION),
+            MouseMode::AnyMotion,
+        );
+        assert_eq!(
+            alacritty_mouse_mode(TermMode::empty()),
+            MouseMode::Disabled,
+        );
+        assert_eq!(
+            alacritty_mouse_mode(TermMode::SGR_MOUSE),
+            MouseMode::Disabled,
+        );
     }
 
     fn preserve_differential_failure(
