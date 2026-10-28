@@ -1063,7 +1063,11 @@ mod io_regressions {
         let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
         assert_eq!(unsafe { libc::sigaction(libc::SIGWINCH, &action, &mut previous) }, 0);
         let thread = unsafe { libc::pthread_self() } as usize;
-        let mut results = Vec::new();
+        // A poll slice reports no activity as success so cleanup loops can
+        // re-check exit conditions; only the caller's deadline produces a
+        // timeout. Keep polling through the signal storm until that timeout
+        // arrives instead of asserting on any single slice, whose outcome
+        // depends on whether a signal landed mid-syscall.
         for descriptor_free in [false, true] {
             let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
             let sender_barrier = barrier.clone();
@@ -1075,19 +1079,29 @@ mod io_regressions {
                 }
             });
             barrier.wait();
-            let deadline = Deadline::after(Duration::from_millis(20));
-            results.push(if descriptor_free {
-                terminal.poll_timer(deadline)
-            } else {
-                terminal.poll(deadline, libc::POLLIN)
-            });
+            let budget = Duration::from_millis(20);
+            let started = Instant::now();
+            let deadline = Deadline::after(budget);
+            let mut waits = 0;
+            loop {
+                waits += 1;
+                assert!(waits < 1000, "poll never reached the caller deadline");
+                let result = if descriptor_free {
+                    terminal.poll_timer(deadline)
+                } else {
+                    terminal.poll(deadline, libc::POLLIN)
+                };
+                match result {
+                    Ok(()) => continue,
+                    Err(PtyTestError::Timeout { .. }) => break,
+                    Err(error) => panic!("interrupted poll surfaced an error: {error:?}"),
+                }
+            }
             sender.join().unwrap();
+            assert!(started.elapsed() >= budget, "signal storm cut the wait short");
         }
         assert_eq!(unsafe { libc::sigaction(libc::SIGWINCH, &previous, std::ptr::null_mut()) }, 0);
         terminal.finish(Deadline::after(Duration::from_secs(2))).unwrap();
-        for result in results {
-            assert!(matches!(result, Err(PtyTestError::Timeout { .. })), "{result:?}");
-        }
     }
 
 }
