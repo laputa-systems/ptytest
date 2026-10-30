@@ -22,7 +22,7 @@ impl ProtocolProfile {
     }
 
     /// Versioned xterm allowlist for text, cursor and erasure, SGR, and the
-    /// lifecycle, mouse, and OSC controls named in `docs/protocol-profiles.md`.
+    /// lifecycle, mouse, and OSC controls.
     /// Unlisted controls, including other OSC and DCS sequences, are rejected.
     pub fn xterm_minimal_v1() -> Self {
         Self {
