@@ -15,6 +15,28 @@ MANIFEST=$ROOT/Cargo.toml
 LOCKFILE=$ROOT/Cargo.lock
 cd "$ROOT"
 
+# Publish verification resolves the packaged crate's registry dependencies
+# through the local Cargo configuration. A replacement of crates.io only
+# holds versions already imported into it, while the release needs every
+# dependency from crates.io itself, so run those commands from the
+# filesystem root, where no repository config applies.
+PUBLISH_CWD=/
+REPO_TOOLCHAIN=
+if command -v rustup >/dev/null 2>&1; then
+    REPO_TOOLCHAIN=$(rustup show active-toolchain 2>/dev/null | awk '{ print $1 }') || REPO_TOOLCHAIN=
+fi
+
+publish_cargo() {
+    (
+        cd "$PUBLISH_CWD" || exit 1
+        if [ -n "$REPO_TOOLCHAIN" ]; then
+            RUSTUP_TOOLCHAIN=$REPO_TOOLCHAIN
+            export RUSTUP_TOOLCHAIN
+        fi
+        cargo "$@" --manifest-path "$ROOT/Cargo.toml"
+    )
+}
+
 for command_name in awk cargo cp dirname git grep mkdir mv rm sed; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
@@ -91,7 +113,7 @@ ensure_registry_auth
 # Cargo checks registry ownership before the script edits either release file.
 # Cargo output is captured so a successful check stays silent; failures
 # report it.
-owner_output=$(cargo owner --list 2>&1) || fail "could not verify ownership: $owner_output"
+owner_output=$(cargo owner --list --registry crates-io 2>&1) || fail "could not verify ownership: $owner_output"
 
 package_metadata=$(awk '
     /^[ \t]*\[package\][ \t]*(#.*)?$/ { section = "package"; next }
@@ -130,7 +152,7 @@ package_name=$(printf '%s\n' "$package_metadata" | sed -n '1p')
 current_version=$(printf '%s\n' "$package_metadata" | sed -n '2p')
 [ -n "$package_name" ] && [ -n "$current_version" ] || fail "root package metadata is incomplete"
 
-published_metadata=$(cargo search "$package_name" --limit 1 2>&1) || fail "could not query the default Cargo registry for $package_name: $published_metadata"
+published_metadata=$(cargo search "$package_name" --limit 1 --registry crates-io 2>&1) || fail "could not query crates.io for $package_name: $published_metadata"
 latest_version=$(printf '%s\n' "$published_metadata" | awk -v package_name="$package_name" '
     $1 == package_name && $2 == "=" && $3 ~ /^".+"$/ {
         version = substr($3, 2, length($3) - 2)
@@ -140,7 +162,7 @@ latest_version=$(printf '%s\n' "$published_metadata" | awk -v package_name="$pac
         if (matches != 1) exit 1
         print version
     }
-') || fail "could not find $package_name on the default Cargo registry"
+') || fail "could not find $package_name on crates.io"
 
 version_plan=$(awk -v current="$current_version" -v latest="$latest_version" '
     function valid_version(value) {
@@ -221,7 +243,7 @@ if [ "$git_subject" = "release: $package_name v$current_version" ]; then
         exit 0
     fi
     printf '%s\n' "Retrying publish of $package_name $current_version"
-    cargo publish
+    publish_cargo publish --registry crates-io
     exit 0
 fi
 
@@ -268,9 +290,9 @@ mv "$temporary_manifest" "$MANIFEST" || fail "could not install updated Cargo.to
 temporary_manifest=
 
 cargo check --quiet
-cargo publish --dry-run --allow-dirty
+publish_cargo publish --dry-run --allow-dirty --registry crates-io
 git add -- Cargo.toml Cargo.lock
 git commit -m "$release_subject"
 release_committed=1
 git tag -a "$next_tag" -m "$package_name $next_version"
-cargo publish
+publish_cargo publish --registry crates-io
