@@ -6,11 +6,14 @@ consumer trace:
 
 New scenarios use the disabled profile, which validates and replies to
 nothing. Profiles are selected explicitly and are never inferred from `TERM`.
+Under every profile the scanner still checks control framing: an escape
+may carry intermediate bytes (0x20–0x2f, as in `ESC ( B`) before its final
+byte, and an unterminated or interrupted control fails.
 
 | Family | Semantic reason | Positive fixture evidence | Boundary |
 | --- | --- | --- | --- |
 | C0 CR/LF/BS/TAB/BEL | text layout and ordinary line output | startup/input acknowledgements | other C0 controls fail |
-| ESC save/restore/index/reset/keypad | ordinary terminal lifecycle | parser unit coverage | other ESC finals fail |
+| ESC save/restore/index/reset/keypad | ordinary terminal lifecycle | parser unit coverage | other ESC finals and all intermediate-byte escapes such as `ESC ( B` fail |
 | CSI cursor/editing/erasure/SGR | visible semantic screen | snapshot/parser coverage | non-parameter bytes fail |
 | DEC private 1, 25, 47, 1047-1049, 2004 | cursor, alternate-screen, bracketed-paste lifecycle | cursor/alternate fixture paths | unlisted private modes fail |
 | DEC private 1000/1002/1003/1004/1006 | `tm2`'s explicit mouse/focus shutdown contract | `tm2 attached client`, offsets 2326/2350 | unlisted private modes fail |

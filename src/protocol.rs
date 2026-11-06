@@ -86,6 +86,7 @@ struct ProtocolScanner {
 enum ScanState {
     Ground,
     Escape { start: usize },
+    EscapeIntermediate { start: usize, raw: Vec<u8> },
     Csi { start: usize, raw: Vec<u8> },
     Osc { start: usize, raw: Vec<u8> },
     Dcs { start: usize, raw: Vec<u8> },
@@ -153,6 +154,13 @@ impl ProtocolScanner {
                     };
                     Ok(None)
                 }
+                0x20..=0x2f => {
+                    self.state = ScanState::EscapeIntermediate {
+                        start,
+                        raw: vec![0x1b, byte],
+                    };
+                    Ok(None)
+                }
                 0x30..=0x7e => self.complete_escape(start, vec![0x1b, byte]),
                 0x1b => {
                     self.state = ScanState::Escape { start: offset };
@@ -160,6 +168,24 @@ impl ProtocolScanner {
                 }
                 _ => self.violation(start, "ESC", "invalid escape sequence"),
             },
+            ScanState::EscapeIntermediate { start, mut raw } => {
+                raw.push(byte);
+                if raw.len() > MAX_CONTROL_BYTES {
+                    return self.violation(start, "ESC", "escape sequence is too long");
+                }
+                match byte {
+                    0x20..=0x2f => {
+                        self.state = ScanState::EscapeIntermediate { start, raw };
+                        Ok(None)
+                    }
+                    0x30..=0x7e => self.complete_escape(start, raw),
+                    0x1b => {
+                        self.state = ScanState::Escape { start: offset };
+                        self.violation(start, "ESC", "escape sequence was interrupted")
+                    }
+                    _ => self.violation(start, "ESC", "invalid escape sequence"),
+                }
+            }
             ScanState::Csi { start, mut raw } => {
                 raw.push(byte);
                 if raw.len() > MAX_CONTROL_BYTES {
@@ -318,6 +344,11 @@ impl ProtocolScanner {
                 "incomplete-control",
                 "incomplete ESC at process exit",
             ),
+            ScanState::EscapeIntermediate { start, .. } => self.violation(
+                *start,
+                "incomplete-control",
+                "incomplete ESC at process exit",
+            ),
             ScanState::Csi { start, .. } => self.violation(
                 *start,
                 "incomplete-control",
@@ -451,6 +482,40 @@ mod tests {
         assert!(matches!(
             error,
             PtyTestError::ProtocolViolation { offset: 17, .. }
+        ));
+    }
+
+    #[test]
+    fn disabled_profile_accepts_escapes_with_intermediate_bytes() {
+        let mut peer = TerminalPeer::new(ProtocolProfile::disabled());
+        peer.observe(b"\x1b(B\x1b)0\x1b#8\x1b%G", (0, 0)).unwrap();
+        peer.observe(b"\x1b(", (0, 0)).unwrap();
+        peer.observe(b"B", (0, 0)).unwrap();
+        peer.finish().unwrap();
+    }
+
+    #[test]
+    fn profile_rejects_unlisted_escapes_with_intermediate_bytes_at_their_start() {
+        let mut peer = TerminalPeer::new(ProtocolProfile::xterm_minimal_v1());
+        let error = peer.observe(b"ab\x1b(B", (0, 0)).unwrap_err();
+        assert!(matches!(
+            error,
+            PtyTestError::ProtocolViolation { offset: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn escape_intermediates_must_end_in_a_final_byte() {
+        let mut interrupted = TerminalPeer::new(ProtocolProfile::disabled());
+        assert!(matches!(
+            interrupted.observe(b"\x1b(\n", (0, 0)),
+            Err(PtyTestError::ProtocolViolation { offset: 0, .. })
+        ));
+        let mut incomplete = TerminalPeer::new(ProtocolProfile::disabled());
+        incomplete.observe(b"\x1b(", (0, 0)).unwrap();
+        assert!(matches!(
+            incomplete.finish(),
+            Err(PtyTestError::ProtocolViolation { offset: 0, .. })
         ));
     }
 
