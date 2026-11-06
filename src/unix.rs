@@ -141,6 +141,11 @@ pub(crate) fn group_has_live_member(
 }
 
 #[cfg(target_os = "linux")]
+fn procfs_entry_vanished(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
+}
+
+#[cfg(target_os = "linux")]
 fn linux_group_has_live_member(process_group: libc::pid_t, leader: libc::pid_t) -> Result<bool> {
     for entry in
         fs::read_dir("/proc").map_err(|error| PtyTestError::io_at("read procfs", "/proc", error))?
@@ -160,7 +165,7 @@ fn linux_group_has_live_member(process_group: libc::pid_t, leader: libc::pid_t) 
         let stat_path = entry.path().join("stat");
         let stat = match fs::read_to_string(&stat_path) {
             Ok(stat) => stat,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if procfs_entry_vanished(&error) => continue,
             Err(error) => return Err(PtyTestError::io_at("read procfs stat", stat_path, error)),
         };
         let Some((_, fields)) = stat.rsplit_once(") ") else {
@@ -744,5 +749,17 @@ fn system(operation: &'static str) -> PtyTestError {
     PtyTestError::System {
         operation,
         errno: errno(),
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::procfs_entry_vanished;
+
+    #[test]
+    fn a_process_exiting_mid_scan_counts_as_gone() {
+        assert!(procfs_entry_vanished(&std::io::Error::from_raw_os_error(libc::ESRCH)));
+        assert!(procfs_entry_vanished(&std::io::Error::from(std::io::ErrorKind::NotFound)));
+        assert!(!procfs_entry_vanished(&std::io::Error::from_raw_os_error(libc::EACCES)));
     }
 }
