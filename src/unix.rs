@@ -1,7 +1,7 @@
 use crate::config::{CommandSpec, ScenarioParts, Size, TestEnv};
 use crate::io::ExitStatus;
 use crate::{PtyTestError, Result};
-use std::collections::BTreeMap;
+use rustc_hash::FxHashMap;
 use std::ffi::{CString, OsStr, OsString};
 #[cfg(target_os = "linux")]
 use std::fs;
@@ -476,13 +476,17 @@ impl PreparedExec {
             .collect::<Vec<_>>();
         argument_pointers.push(std::ptr::null());
 
-        let mut variables: BTreeMap<OsString, Option<OsString>> = environment.variables().clone();
-        variables.extend(
+        let mut merged: FxHashMap<OsString, Option<OsString>> = environment.variables().clone();
+        merged.extend(
             command
                 .environment()
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())),
         );
+        // The child sees an ordered `environ`; keep the key-ascending order the
+        // old ordered map produced instead of hash iteration order.
+        let mut variables: Vec<(OsString, Option<OsString>)> = merged.drain().collect();
+        variables.sort_by(|(left, _), (right, _)| left.cmp(right));
         let mut values = Vec::new();
         for (key, value) in variables {
             let Some(value) = value else { continue };

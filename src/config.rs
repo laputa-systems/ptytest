@@ -1,5 +1,5 @@
 use crate::{PtyTestError, Result};
-use std::collections::{BTreeMap, BTreeSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -91,8 +91,8 @@ pub struct CommandSpec {
     program: PathBuf,
     arguments: Vec<OsString>,
     current_dir: Option<PathBuf>,
-    environment: BTreeMap<OsString, Option<OsString>>,
-    secret_environment: BTreeSet<OsString>,
+    environment: FxHashMap<OsString, Option<OsString>>,
+    secret_environment: FxHashSet<OsString>,
 }
 
 impl CommandSpec {
@@ -101,8 +101,8 @@ impl CommandSpec {
             program: program.into(),
             arguments: Vec::new(),
             current_dir: None,
-            environment: BTreeMap::new(),
-            secret_environment: BTreeSet::new(),
+            environment: FxHashMap::default(),
+            secret_environment: FxHashSet::default(),
         }
     }
 
@@ -165,7 +165,7 @@ impl CommandSpec {
         self.current_dir.as_deref()
     }
 
-    pub(crate) fn environment(&self) -> &BTreeMap<OsString, Option<OsString>> {
+    pub(crate) fn environment(&self) -> &FxHashMap<OsString, Option<OsString>> {
         &self.environment
     }
 
@@ -218,8 +218,8 @@ impl TestPaths {
 /// runner. Its scratch directory is removed when the environment is dropped.
 #[derive(Debug)]
 pub struct TestEnv {
-    variables: BTreeMap<OsString, Option<OsString>>,
-    secret_variables: BTreeSet<OsString>,
+    variables: FxHashMap<OsString, Option<OsString>>,
+    secret_variables: FxHashSet<OsString>,
     paths: TestPaths,
     keep_scratch: bool,
 }
@@ -247,7 +247,7 @@ impl TestEnv {
 
     fn new_with_locale(locale: &str) -> Result<Self> {
         let paths = create_scratch_paths()?;
-        let mut variables = BTreeMap::new();
+        let mut variables = FxHashMap::default();
         insert_env_path(&mut variables, "HOME", paths.home());
         insert_env_path(&mut variables, "XDG_CONFIG_HOME", paths.config());
         insert_env_path(&mut variables, "XDG_DATA_HOME", paths.data());
@@ -267,7 +267,7 @@ impl TestEnv {
         variables.insert(OsString::from("TZ"), Some(OsString::from("UTC")));
         Ok(Self {
             variables,
-            secret_variables: BTreeSet::new(),
+            secret_variables: FxHashSet::default(),
             paths,
             keep_scratch: false,
         })
@@ -308,7 +308,7 @@ impl TestEnv {
         &self.paths
     }
 
-    pub(crate) fn variables(&self) -> &BTreeMap<OsString, Option<OsString>> {
+    pub(crate) fn variables(&self) -> &FxHashMap<OsString, Option<OsString>> {
         &self.variables
     }
 
@@ -427,13 +427,17 @@ impl ScenarioParts {
         if let Some(path) = self.command.current_dir_path() {
             output.push_str(&format!("cwd: {}\n", path.display()));
         }
-        let mut variables = self.environment.variables().clone();
-        variables.extend(
+        let mut merged = self.environment.variables().clone();
+        merged.extend(
             self.command
                 .environment()
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())),
         );
+        // Hash iteration order is not observable: diagnostics keep the
+        // previously sorted, key-ascending order of the old ordered map.
+        let mut variables: Vec<(OsString, Option<OsString>)> = merged.drain().collect();
+        variables.sort_by(|(left, _), (right, _)| left.cmp(right));
         for (key, value) in variables {
             let key_text = key.to_string_lossy();
             let secret = self.environment.is_secret_variable(&key)
@@ -465,7 +469,7 @@ fn looks_secret(key: &str) -> bool {
 }
 
 fn insert_env_path(
-    environment: &mut BTreeMap<OsString, Option<OsString>>,
+    environment: &mut FxHashMap<OsString, Option<OsString>>,
     key: &str,
     value: &Path,
 ) {
