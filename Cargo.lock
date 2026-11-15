@@ -140,6 +140,7 @@ dependencies = [
  "alacritty_terminal",
  "libc",
  "rustc-hash",
+ "rustix",
  "vt100",
 ]
 
