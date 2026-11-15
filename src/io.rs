@@ -7,7 +7,10 @@ use crate::unix::{self, Spawned};
 use crate::{PtyTestError, Result};
 use std::fs;
 use std::io::Write;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, OwnedFd};
+
+use rustix::event::{PollFd, PollFlags, Timespec};
+use rustix::io::Errno;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -66,8 +69,8 @@ pub enum Key {
 pub struct PtyTest {
     scenario: ScenarioParts,
     master: Option<OwnedFd>,
-    child_pid: libc::pid_t,
-    process_group: libc::pid_t,
+    child_pid: i32,
+    process_group: i32,
     terminal: TerminalBackend,
     peer: TerminalPeer,
     baseline: TerminalBaseline,
@@ -183,7 +186,7 @@ impl PtyTest {
                 .filter(|end| *end <= bytes.len())
                 .ok_or(PtyTestError::System {
                     operation: "validate input fragments",
-                    errno: libc::EINVAL,
+                    errno: Errno::INVAL.raw_os_error(),
                 })?;
             self.send_bytes(deadline, &bytes[offset..end])?;
             offset = end;
@@ -193,7 +196,7 @@ impl PtyTest {
                 "send fragmented",
                 PtyTestError::System {
                     operation: "input fragments do not cover byte stream",
-                    errno: libc::EINVAL,
+                    errno: Errno::INVAL.raw_os_error(),
                 },
                 None,
             ));
@@ -232,9 +235,10 @@ impl PtyTest {
     }
 
     pub fn send_eof(&mut self, deadline: Deadline) -> Result<()> {
-        let master = self
-            .master_fd()
-            .map_err(|error| self.fail("send EOF", error, None))?;
+        let master = match self.master_fd() {
+            Ok(master) => master,
+            Err(error) => return Err(self.fail("send EOF", error, None)),
+        };
         let eof = unix::terminal_eof(master).map_err(|error| self.fail("send EOF", error, None))?;
         self.send_bytes(deadline, &[eof])
     }
@@ -247,9 +251,10 @@ impl PtyTest {
     }
 
     pub fn resize(&mut self, size: Size) -> Result<()> {
-        let master = self
-            .master_fd()
-            .map_err(|error| self.fail("resize", error, None))?;
+        let master = match self.master_fd() {
+            Ok(master) => master,
+            Err(error) => return Err(self.fail("resize", error, None)),
+        };
         unix::resize(master, size).map_err(|error| self.fail("resize", error, None))?;
         self.terminal.resize(size);
         self.event(
@@ -486,13 +491,13 @@ impl PtyTest {
         }
     }
 
-    fn master_fd(&self) -> Result<i32> {
+    fn master_fd(&self) -> Result<std::os::fd::BorrowedFd<'_>> {
         self.master
             .as_ref()
-            .map(AsRawFd::as_raw_fd)
+            .map(AsFd::as_fd)
             .ok_or(PtyTestError::System {
                 operation: "PTY master is closed",
-                errno: libc::EIO,
+                errno: Errno::IO.raw_os_error(),
             })
     }
 
@@ -508,11 +513,28 @@ impl PtyTest {
             if deadline.expired() {
                 return Err(self.timeout_error(deadline, "write PTY master"));
             }
-            let fd = self.master_fd()?;
-            let written =
-                unsafe { libc::write(fd, bytes[offset..].as_ptr().cast(), bytes.len() - offset) };
-            if written > 0 {
-                let written = written as usize;
+            let master = self.master_fd()?;
+            let written = match rustix::io::write(master, &bytes[offset..]) {
+                Ok(written) if written > 0 => written,
+                Ok(_) => {
+                    return Err(PtyTestError::System {
+                        operation: "write PTY master",
+                        errno: Errno::IO.raw_os_error(),
+                    })
+                }
+                Err(Errno::INTR) => continue,
+                Err(Errno::AGAIN) => {
+                    self.poll(deadline, PollFlags::OUT)?;
+                    continue;
+                }
+                Err(error) => {
+                    return Err(PtyTestError::System {
+                        operation: "write PTY master",
+                        errno: error.raw_os_error(),
+                    })
+                }
+            };
+            {
                 self.reserve_trace(written)?;
                 let input_offset = self.input.len();
                 self.input
@@ -527,34 +549,37 @@ impl PtyTest {
                 offset += written;
                 continue;
             }
-            if written < 0 && errno_is_retryable() {
-                continue;
-            }
-            if written < 0 && errno_would_block() {
-                self.poll(deadline, libc::POLLOUT)?;
-                continue;
-            }
-            return Err(PtyTestError::System {
-                operation: "write PTY master",
-                errno: unix::errno(),
-            });
         }
         Ok(())
     }
 
     fn read_available(&mut self, deadline: Deadline) -> Result<()> {
-        let Some(master) = self.master.as_ref() else {
-            return Ok(());
-        };
-        let fd = master.as_raw_fd();
         let mut buffer = [0_u8; 8192];
         loop {
             if deadline.expired() {
                 return Err(self.timeout_error(deadline, "read PTY master"));
             }
-            let count = unsafe { libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len()) };
+            let fd = match self.master.as_ref() {
+                Some(master) => master.as_fd(),
+                None => return Ok(()),
+            };
+            let count = match rustix::io::read(fd, &mut buffer[..]) {
+                Ok(count) => count,
+                Err(Errno::INTR) => continue,
+                Err(Errno::AGAIN) => return Ok(()),
+                Err(Errno::IO) => {
+                    self.closed = true;
+                    return Ok(());
+                }
+                Err(error) => {
+                    return Err(PtyTestError::System {
+                        operation: "read PTY master",
+                        errno: error.raw_os_error(),
+                    })
+                }
+            };
             if count > 0 {
-                let bytes = &buffer[..count as usize];
+                let bytes = &buffer[..count];
                 self.reserve_trace(bytes.len())?;
                 let output_offset = self.output.len();
                 self.output.extend_from_slice(bytes);
@@ -590,21 +615,6 @@ impl PtyTest {
                 self.closed = true;
                 return Ok(());
             }
-            if errno_is_retryable() {
-                continue;
-            }
-            if errno_would_block() {
-                return Ok(());
-            }
-            let error = unix::errno();
-            if error == libc::EIO {
-                self.closed = true;
-                return Ok(());
-            }
-            return Err(PtyTestError::System {
-                operation: "read PTY master",
-                errno: error,
-            });
         }
     }
 
@@ -612,38 +622,29 @@ impl PtyTest {
         // A finite poll interval lets us observe an exited leader even when a
         // descendant still keeps the slave open. This is kernel polling, not a
         // synchronization sleep, and never extends the caller's deadline.
-        self.poll(deadline, libc::POLLIN)
+        self.poll(deadline, PollFlags::IN)
     }
 
-    fn poll(&self, deadline: Deadline, requested_events: i16) -> Result<()> {
-        let mut descriptor = (!self.closed)
-            .then_some(self.master.as_ref())
-            .flatten()
-            .map(|master| libc::pollfd {
-                fd: master.as_raw_fd(),
-                events: requested_events,
-                revents: 0,
-            });
-        let (pointer, count) = match descriptor.as_mut() {
-            Some(descriptor) => (descriptor as *mut libc::pollfd, 1),
-            None => (std::ptr::null_mut(), 0),
-        };
+    fn poll(&self, deadline: Deadline, requested_events: PollFlags) -> Result<()> {
         loop {
             let remaining = deadline
                 .remaining()
                 .ok_or_else(|| self.timeout_error(deadline, "poll"))?;
-            let milliseconds = remaining.as_millis().clamp(1, 25) as libc::c_int;
-            let result = unsafe { libc::poll(pointer, count, milliseconds) };
-            if result >= 0 {
-                return Ok(());
+            let timeout = millis_timespec(remaining.as_millis().clamp(1, 25));
+            let mut fds = match (&self.master, self.closed) {
+                (Some(master), false) => vec![PollFd::new(master, requested_events)],
+                _ => Vec::new(),
+            };
+            match rustix::event::poll(&mut fds, Some(&timeout)) {
+                Ok(_) => return Ok(()),
+                Err(Errno::INTR) => continue,
+                Err(error) => {
+                    return Err(PtyTestError::System {
+                        operation: "poll PTY master",
+                        errno: error.raw_os_error(),
+                    })
+                }
             }
-            if unix::errno() == libc::EINTR {
-                continue;
-            }
-            return Err(PtyTestError::System {
-                operation: "poll PTY master",
-                errno: unix::errno(),
-            });
         }
     }
 
@@ -652,18 +653,17 @@ impl PtyTest {
             let remaining = deadline
                 .remaining()
                 .ok_or_else(|| self.timeout_error(deadline, "cleanup group poll"))?;
-            let milliseconds = remaining.as_millis().clamp(1, 25) as libc::c_int;
-            let result = unsafe { libc::poll(std::ptr::null_mut(), 0, milliseconds) };
-            if result >= 0 {
-                return Ok(());
+            let timeout = millis_timespec(remaining.as_millis().clamp(1, 25));
+            match rustix::event::poll(&mut [], Some(&timeout)) {
+                Ok(_) => return Ok(()),
+                Err(Errno::INTR) => continue,
+                Err(error) => {
+                    return Err(PtyTestError::System {
+                        operation: "poll cleanup process group",
+                        errno: error.raw_os_error(),
+                    })
+                }
             }
-            if unix::errno() == libc::EINTR {
-                continue;
-            }
-            return Err(PtyTestError::System {
-                operation: "poll cleanup process group",
-                errno: unix::errno(),
-            });
         }
     }
 
@@ -726,7 +726,7 @@ impl PtyTest {
             false
         };
 
-        self.signal_cleanup_group(libc::SIGTERM)?;
+        self.signal_cleanup_group(rustix::process::Signal::TERM.as_raw())?;
         let remaining = deadline
             .remaining()
             .ok_or_else(|| self.timeout_error(deadline, "cleanup child process group"))?;
@@ -736,7 +736,7 @@ impl PtyTest {
             || self.wait_for_leader_exit(graceful_deadline, terminal_error)?.is_some();
         let group_drained = leader_exited && self.wait_for_group_drain(graceful_deadline)?;
         if !leader_exited || !group_drained {
-            self.signal_cleanup_group(libc::SIGKILL)?;
+            self.signal_cleanup_group(rustix::process::Signal::KILL.as_raw())?;
             if !leader_exited && self.wait_for_leader_exit(deadline, terminal_error)?.is_none() {
                 return Err(self.timeout_error(deadline, "cleanup child process group"));
             }
@@ -861,20 +861,12 @@ impl Drop for PtyTest {
         if !self.reaped {
             let error = PtyTestError::System {
                 operation: "live PTY harness dropped",
-                errno: libc::ECANCELED,
+                errno: Errno::CANCELED.raw_os_error(),
             };
             let _ = self.fail("drop cleanup", error, None);
             let _ = self.cleanup(Deadline::after(Duration::from_secs(1)));
         }
     }
-}
-
-fn errno_is_retryable() -> bool {
-    unix::errno() == libc::EINTR
-}
-fn errno_would_block() -> bool {
-    let error = unix::errno();
-    error == libc::EAGAIN || error == libc::EWOULDBLOCK
 }
 
 fn attach_artifact(error: PtyTestError, path: std::path::PathBuf) -> PtyTestError {
@@ -994,6 +986,13 @@ fn inline_diff(expected: &str, actual: &str) -> String {
     )
 }
 
+fn millis_timespec(millis: u128) -> Timespec {
+    Timespec {
+        tv_sec: (millis / 1000) as i64,
+        tv_nsec: ((millis % 1000) * 1_000_000) as _,
+    }
+}
+
 #[cfg(test)]
 mod io_regressions {
     use super::*;
@@ -1089,7 +1088,7 @@ mod io_regressions {
                 let result = if descriptor_free {
                     terminal.poll_timer(deadline)
                 } else {
-                    terminal.poll(deadline, libc::POLLIN)
+                    terminal.poll(deadline, PollFlags::IN)
                 };
                 match result {
                     Ok(()) => continue,

@@ -6,7 +6,7 @@ use std::ffi::{CString, OsStr, OsString};
 #[cfg(target_os = "linux")]
 use std::fs;
 use std::mem::MaybeUninit;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 // `openpty` is in libutil on Linux and in libc on macOS. Keeping this linker
@@ -22,13 +22,13 @@ unsafe extern "C" {}
 #[cfg(target_os = "macos")]
 #[link(name = "proc")]
 unsafe extern "C" {
-    fn proc_listallpids(buffer: *mut libc::c_void, buffersize: libc::c_int) -> libc::c_int;
+    fn proc_listallpids(buffer: *mut libc::c_void, buffersize: i32) -> i32;
 }
 
 pub(crate) struct Spawned {
     pub(crate) master: OwnedFd,
-    pub(crate) child_pid: libc::pid_t,
-    pub(crate) process_group: libc::pid_t,
+    pub(crate) child_pid: i32,
+    pub(crate) process_group: i32,
 }
 
 pub(crate) fn spawn(scenario: &ScenarioParts) -> Result<Spawned> {
@@ -69,7 +69,8 @@ pub(crate) fn spawn(scenario: &ScenarioParts) -> Result<Spawned> {
     })
 }
 
-pub(crate) fn resize(master: RawFd, size: Size) -> Result<()> {
+pub(crate) fn resize(master: BorrowedFd<'_>, size: Size) -> Result<()> {
+    let master = master.as_raw_fd();
     let window_size = libc::winsize {
         ws_row: size.rows(),
         ws_col: size.columns(),
@@ -84,7 +85,8 @@ pub(crate) fn resize(master: RawFd, size: Size) -> Result<()> {
     }
 }
 
-pub(crate) fn terminal_eof(master: RawFd) -> Result<u8> {
+pub(crate) fn terminal_eof(master: BorrowedFd<'_>) -> Result<u8> {
+    let master = master.as_raw_fd();
     let mut termios = MaybeUninit::<libc::termios>::uninit();
     if unsafe { libc::tcgetattr(master, termios.as_mut_ptr()) } < 0 {
         return Err(system("tcgetattr"));
@@ -99,7 +101,7 @@ pub(crate) fn terminal_eof(master: RawFd) -> Result<u8> {
     Ok(termios.c_cc[libc::VEOF])
 }
 
-pub(crate) fn signal_group(process_group: libc::pid_t, signal: libc::c_int) -> Result<()> {
+pub(crate) fn signal_group(process_group: i32, signal: i32) -> Result<()> {
     if signal <= 0 {
         return Err(PtyTestError::InvalidSignal { signal });
     }
@@ -124,8 +126,8 @@ pub(crate) fn signal_group(process_group: libc::pid_t, signal: libc::c_int) -> R
 /// process state through procfs, while Darwin exposes current group membership
 /// through libproc. A zombie leader alone is not a reason to escalate.
 pub(crate) fn group_has_live_member(
-    process_group: libc::pid_t,
-    leader: libc::pid_t,
+    process_group: i32,
+    leader: i32,
 ) -> Result<bool> {
     #[cfg(target_os = "linux")]
     return linux_group_has_live_member(process_group, leader);
@@ -146,7 +148,7 @@ fn procfs_entry_vanished(error: &std::io::Error) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn linux_group_has_live_member(process_group: libc::pid_t, leader: libc::pid_t) -> Result<bool> {
+fn linux_group_has_live_member(process_group: i32, leader: i32) -> Result<bool> {
     for entry in
         fs::read_dir("/proc").map_err(|error| PtyTestError::io_at("read procfs", "/proc", error))?
     {
@@ -155,7 +157,7 @@ fn linux_group_has_live_member(process_group: libc::pid_t, leader: libc::pid_t) 
         let Some(name) = entry
             .file_name()
             .to_str()
-            .and_then(|name| name.parse::<libc::pid_t>().ok())
+            .and_then(|name| name.parse::<i32>().ok())
         else {
             continue;
         };
@@ -176,7 +178,7 @@ fn linux_group_has_live_member(process_group: libc::pid_t, leader: libc::pid_t) 
         let _parent = fields.next();
         let group = fields
             .next()
-            .and_then(|value| value.parse::<libc::pid_t>().ok());
+            .and_then(|value| value.parse::<i32>().ok());
         if group == Some(process_group) && state != Some("Z") {
             return Ok(true);
         }
@@ -185,7 +187,7 @@ fn linux_group_has_live_member(process_group: libc::pid_t, leader: libc::pid_t) 
 }
 
 #[cfg(target_os = "macos")]
-fn signal_darwin_group_members(process_group: libc::pid_t, signal: libc::c_int) -> Result<()> {
+fn signal_darwin_group_members(process_group: i32, signal: i32) -> Result<()> {
     let members = darwin_group_members(process_group)?;
     for pid in members {
         // The original leader remains unreaped during cleanup, so this group
@@ -210,14 +212,14 @@ fn signal_darwin_group_members(process_group: libc::pid_t, signal: libc::c_int) 
 }
 
 #[cfg(target_os = "macos")]
-fn darwin_group_members(process_group: libc::pid_t) -> Result<Vec<libc::pid_t>> {
+fn darwin_group_members(process_group: i32) -> Result<Vec<i32>> {
     let mut members = list_all_processes()?;
     members.retain(|pid| *pid > 0 && unsafe { libc::getpgid(*pid) } == process_group);
     Ok(members)
 }
 
 #[cfg(target_os = "macos")]
-fn list_all_processes() -> Result<Vec<libc::pid_t>> {
+fn list_all_processes() -> Result<Vec<i32>> {
     list_all_processes_with(|buffer, buffersize| unsafe {
         proc_listallpids(buffer, buffersize)
     })
@@ -225,8 +227,8 @@ fn list_all_processes() -> Result<Vec<libc::pid_t>> {
 
 #[cfg(target_os = "macos")]
 fn list_all_processes_with(
-    mut list: impl FnMut(*mut libc::c_void, libc::c_int) -> libc::c_int,
-) -> Result<Vec<libc::pid_t>> {
+    mut list: impl FnMut(*mut libc::c_void, i32) -> i32,
+) -> Result<Vec<i32>> {
     // proc_listallpids reports a PID count, while its capacity argument is
     // measured in bytes. The process table can grow after the sizing query,
     // so a completely filled buffer must be retried with more room.
@@ -239,8 +241,8 @@ fn list_all_processes_with(
         .max(1);
     loop {
         let byte_capacity = capacity
-            .checked_mul(std::mem::size_of::<libc::pid_t>())
-            .filter(|bytes| *bytes <= libc::c_int::MAX as usize)
+            .checked_mul(std::mem::size_of::<i32>())
+            .filter(|bytes| *bytes <= i32::MAX as usize)
             .ok_or(PtyTestError::System {
                 operation: "proc_listallpids capacity overflow",
                 errno: libc::EOVERFLOW,
@@ -270,8 +272,8 @@ mod darwin_tests {
     use std::mem::size_of;
     use std::ptr;
 
-    fn write_pids(buffer: *mut libc::c_void, buffersize: libc::c_int, pids: &[libc::pid_t]) {
-        let capacity = buffersize as usize / size_of::<libc::pid_t>();
+    fn write_pids(buffer: *mut libc::c_void, buffersize: i32, pids: &[i32]) {
+        let capacity = buffersize as usize / size_of::<i32>();
         assert!(!buffer.is_null());
         assert!(capacity >= pids.len());
         unsafe { ptr::copy_nonoverlapping(pids.as_ptr(), buffer.cast(), pids.len()) };
@@ -285,7 +287,7 @@ mod darwin_tests {
             if buffer.is_null() {
                 return 1;
             }
-            capacities.push(buffersize as usize / size_of::<libc::pid_t>());
+            capacities.push(buffersize as usize / size_of::<i32>());
             let (written, result) = match call {
                 0 => (1, &[11][..]),
                 1 => (2, &[21, 22][..]),
@@ -323,7 +325,7 @@ mod darwin_tests {
 }
 
 /// Observes an exit without consuming the child's wait status.
-pub(crate) fn observe_exit(pid: libc::pid_t) -> Result<Option<ExitStatus>> {
+pub(crate) fn observe_exit(pid: i32) -> Result<Option<ExitStatus>> {
     let mut info = MaybeUninit::<libc::siginfo_t>::zeroed();
     let result = unsafe {
         libc::waitid(
@@ -356,7 +358,7 @@ pub(crate) fn observe_exit(pid: libc::pid_t) -> Result<Option<ExitStatus>> {
     Ok(Some(exit))
 }
 
-pub(crate) fn reap(pid: libc::pid_t) -> Result<ExitStatus> {
+pub(crate) fn reap(pid: i32) -> Result<ExitStatus> {
     let mut status = 0;
     loop {
         let result = unsafe { libc::waitpid(pid, &mut status, 0) };
@@ -598,7 +600,7 @@ unsafe fn close_listed_descriptors(error_fd: RawFd) -> bool {
         proc_fd: -1,
         proc_fdtype: 0,
     }; CAPACITY];
-    let capacity = std::mem::size_of_val(&listed) as libc::c_int;
+    let capacity = std::mem::size_of_val(&listed) as i32;
     let written = unsafe {
         libc::proc_pidinfo(
             libc::getpid(),
@@ -706,7 +708,7 @@ fn read_child_error(fd: RawFd) -> Result<Option<(i32, i32)>> {
     Ok(Some((stage, error)))
 }
 
-fn reap_rejected_spawn(pid: libc::pid_t) {
+fn reap_rejected_spawn(pid: i32) {
     let mut status = 0;
     loop {
         let result = unsafe { libc::waitpid(pid, &mut status, 0) };
@@ -733,7 +735,7 @@ fn stage_name(stage: i32) -> &'static str {
     }
 }
 
-fn exit_status(status: libc::c_int) -> ExitStatus {
+fn exit_status(status: i32) -> ExitStatus {
     if libc::WIFEXITED(status) {
         ExitStatus::Code(libc::WEXITSTATUS(status))
     } else if libc::WIFSIGNALED(status) {
