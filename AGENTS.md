@@ -2,7 +2,16 @@
 
 `ptytest` is a Unix-only Rust test-support crate for exercising interactive programs through a real PTY.
 
-Build: `cargo build --locked --all-targets` · Test: `cargo test --locked` · Check: `cargo clippy --locked --all-targets --all-features -- --deny warnings`.
+Build: `cargo build --locked --all-targets` · Test: `make test` · Check: `make lint`.
+
+## Verification
+
+- `make test` and `make lint` are the CI entry points on Linux arm64 and macOS. CI also runs the single-threaded suite. A fresh macOS arm64 target at `3fd48af` passed in 12.26s under host load. The first warm run exposed the deadline equality failure tracked in [#13](https://github.com/laputa-systems/ptytest/pull/13).
+- Real PTY, direct spawn, process cleanup, resize and signals: `tests/pty_boundary.rs`. Deadlines, quiescence and bounded reads and writes: `tests/io_regressions.rs`.
+- Screen cells, modes, split terminal sequences and approved replies: `src/terminal.rs`, `src/protocol.rs` and `tests/pty_boundary.rs`. The scheduled differential corpus checks shared behavior against the independent terminal backend.
+- Failure bundles, event JSONL and replay: `tests/pty_boundary.rs` and `src/replay.rs`. Replay CLI help and exit success: `tests/replay_cli.rs`.
+- Consumer tests use the crate in e, fz, ish, lz, soulseek-rs, tm and xsh. See [published-pin and historical checks](docs/baselines.md).
+- No standalone throughput workload. Consumer PTY cases and the bounded I/O regressions check the observable waits and terminal round trips.
 
 ## Invariants
 
