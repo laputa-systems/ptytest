@@ -31,6 +31,10 @@ impl ArtifactWriter {
         Self { root: None }
     }
 
+    pub(crate) fn has_bundle(&self) -> bool {
+        self.root.is_some()
+    }
+
     pub(crate) fn write_failure(&mut self, context: FailureContext<'_>) -> Result<PathBuf> {
         let FailureContext {
             scenario,
@@ -60,7 +64,6 @@ impl ArtifactWriter {
                 fs::create_dir(&root).map_err(|error| {
                     PtyTestError::io_at("create artifact directory", &root, error)
                 })?;
-                self.root = Some(root.clone());
                 root
             }
         };
@@ -125,6 +128,7 @@ impl ArtifactWriter {
                 concise_diff(expected, &actual).as_bytes(),
             )?;
         }
+        self.root.get_or_insert_with(|| root.clone());
         Ok(root)
     }
 }

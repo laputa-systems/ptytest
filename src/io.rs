@@ -859,11 +859,13 @@ impl PtyTest {
 impl Drop for PtyTest {
     fn drop(&mut self) {
         if !self.reaped {
-            let error = PtyTestError::System {
-                operation: "live PTY harness dropped",
-                errno: Errno::CANCELED.raw_os_error(),
-            };
-            let _ = self.fail("drop cleanup", error, None);
+            if !self.artifact.has_bundle() {
+                let error = PtyTestError::System {
+                    operation: "live PTY harness dropped",
+                    errno: Errno::CANCELED.raw_os_error(),
+                };
+                let _ = self.fail("drop cleanup", error, None);
+            }
             let _ = self.cleanup(Deadline::after(Duration::from_secs(1)));
         }
     }
