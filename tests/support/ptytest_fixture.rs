@@ -103,8 +103,6 @@ fn cleanup_failure() {
         "query" => write_all(b"\x1b[6n"),
         "overflow" => write_all(&[b'x'; 128]),
         "flood" => {
-            std::fs::write(std::env::temp_dir().join("cleanup-output-ready"), b"ready")
-                .expect("write output barrier");
             loop {
                 write_all(&[b'x'; 8192]);
             }
