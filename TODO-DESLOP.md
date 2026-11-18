@@ -29,18 +29,30 @@ occurred with base `5176d94`. The linked PR records their commands and
 consumer revisions. Soulseek-rs and xsh were outside that run. Types,
 broader mutation inventory and consumer release qualification remain open.
 
+Types at `0edcf81` used Clippy on all targets and features with the pinned
+nightly `5b7b37aef` on macOS arm64. Add `-W unsafe_code` and `-W
+clippy::<rule>` for each candidate to the ordinary Clippy command, replacing
+`--deny warnings`. Deduplicate JSON diagnostics by rule, file and line.
+
+| Candidate | Locations | Decision |
+| --- | ---: | --- |
+| `unsafe_code` | 122 | Unix PTY process and descriptor functions need FFI. |
+| `wildcard_enum_match_arm` | 4 | Process and terminal paths deliberately group fallback variants. |
+| `match_wildcard_for_single_variants` | 0 | No demonstrated witness. |
+| `cast_possible_truncation` | 5 | Includes bounded termios and polling values and explicit native integer widths. |
+| `cast_sign_loss` | 7 | Includes return values checked for errors before conversion. |
+| `unwrap_used`, `expect_used` | 276, 40 | Test assertions dominate. No adopted production witness. |
+| `redundant_clone` | 1 | A diagnostic allocation falls outside the type contract. |
+| `needless_pass_by_value` | 4 | Includes owned error and replay representations. |
+
+The ordinary profile remains clean. No new escape hatch or runtime change.
+Linux acceptance uses the existing hosted suite. The alternate Linux
+backend was outside this macOS candidate measurement.
+
 ## Tickets
 
 
 
-### DSLP-3 · P2 · Types: strict profile and typing findings
-
-- **Area:** deslop · types
-- **Where:** type checker and lint configuration; Rust sources
-- **Problem:** The strict-profile candidates in the deslop skill's tools reference have not been measured here.
-- **Recommendation:** Run the deslop Types step. Accept: clean at the adopted profile, escape hatches not increased, witnesses recorded.
-- **Fix with:** deslop
-- **Effort:** M
 
 ### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
 
