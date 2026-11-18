@@ -423,6 +423,31 @@ fn timeout_writes_a_replayable_redacted_failure_bundle() {
 }
 
 #[test]
+fn dropping_live_harness_preserves_the_timeout_bundle() {
+    let mut terminal = PtyTest::spawn(scenario("drop after timeout")).unwrap();
+    terminal
+        .wait_for_screen(deadline(&terminal), "fixture readiness", |screen| {
+            screen.contains("PTYTEST_READY")
+        })
+        .unwrap();
+    let bundle = match terminal.wait_for_screen(
+        terminal.deadline(Duration::ZERO),
+        "missing prompt",
+        |_| false,
+    ) {
+        Err(ptytest::PtyTestError::Timeout { artifact_dir: Some(path), .. }) => path,
+        other => panic!("expected timeout artifact, got {other:?}"),
+    };
+    let failure = bundle.join("failure.txt");
+    let before = std::fs::read_to_string(&failure).unwrap();
+    assert!(before.contains("missing prompt"), "{before}");
+
+    drop(terminal);
+
+    assert_eq!(std::fs::read_to_string(failure).unwrap(), before);
+}
+
+#[test]
 fn fragmented_utf8_input_and_backpressure_complete_without_a_sleep() {
     for split in 0..=3 {
         let mut terminal =

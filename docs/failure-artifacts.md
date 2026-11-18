@@ -8,7 +8,7 @@ Snapshot assertions do not write during normal runs. Set `PTYTEST_UPDATE_SNAPSHO
 
 ## Failure bundles
 
-Failures and dropping a live harness write evidence under `target/ptytest-failures/<scenario>-<pid>-<counter>/`. Bundles include redacted command/configuration text, a versioned ordered `events.jsonl` trace with byte ranges, readable `events.log`, raw `input.bin` and `output.bin` bytes up to the configured trace limit, the semantic screen and terminal state, exit status, and a failure description. Snapshot mismatches also include expected, actual, and diff files.
+Failures write evidence under `target/ptytest-failures/<scenario>-<pid>-<counter>/`. Dropping a live harness preserves its existing bundle and writes a diagnostic if the harness has no bundle. Bundles include redacted command/configuration text, a versioned ordered `events.jsonl` trace with byte ranges, readable `events.log`, raw `input.bin` and `output.bin` bytes up to the configured trace limit, the semantic screen and terminal state, exit status, and a failure description. Snapshot mismatches also include expected, actual, and diff files.
 
 `secret_env` values and secret-looking environment keys are redacted in text diagnostics. Raw input/output files are intentionally exact, so tests should use fake credentials. The trace capacity defaults to 8 MiB and can be changed on `Scenario`; exceeding it returns `TraceLimitExceeded` instead of silently truncating evidence.
 
