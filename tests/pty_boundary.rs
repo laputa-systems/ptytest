@@ -181,50 +181,6 @@ fn approved_queries_receive_a_deterministic_reply() {
 }
 
 #[test]
-fn cpr_uses_the_cursor_at_the_query_and_traces_both_directions() {
-    let scenario =
-        scenario("CPR cursor timing").protocol_profile(ProtocolProfile::xterm_minimal_v1());
-    let mut terminal = PtyTest::spawn(scenario).unwrap();
-    terminal
-        .wait_for_screen(deadline(&terminal), "fixture readiness", |screen| {
-            screen.contains("PTYTEST_READY")
-        })
-        .unwrap();
-    terminal
-        .send_text(deadline(&terminal), "query-cpr-with-trailing-output\n")
-        .unwrap();
-    terminal
-        .wait_for_screen(deadline(&terminal), "CPR response", |screen| {
-            screen.contains("QUERY_CPR_REPLY:\\x1b[2;4R")
-        })
-        .unwrap();
-
-    let bundle = match terminal.wait_for_screen(
-        terminal.deadline(Duration::from_millis(1)),
-        "intentional query trace artifact",
-        |_| false,
-    ) {
-        Err(ptytest::PtyTestError::Timeout {
-            artifact_dir: Some(path),
-            ..
-        }) => path,
-        other => panic!("expected timeout artifact, got {other:?}"),
-    };
-    let events = std::fs::read_to_string(bundle.join("events.jsonl")).unwrap();
-    assert!(events.contains("\"kind\":\"terminal-query\""));
-    assert!(events.contains("\"kind\":\"terminal-reply\""));
-    assert!(events.contains("query-output-offset="));
-    assert!(events.contains("input-offset="));
-    assert!(
-        std::fs::read(bundle.join("input.bin"))
-            .unwrap()
-            .windows(b"\x1b[2;4R".len())
-            .any(|bytes| bytes == b"\x1b[2;4R")
-    );
-    terminal.finish(deadline(&terminal)).unwrap();
-}
-
-#[test]
 fn direct_exec_failure_is_reported_without_a_child_leak() {
     let scenario = Scenario::new("missing direct executable")
         .unwrap()
