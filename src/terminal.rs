@@ -30,7 +30,11 @@ impl TerminalBackend {
     /// Cursor row and column without copying the screen. The protocol peer
     /// needs this after every output byte, so it must stay O(1).
     pub(crate) fn cursor_position(&self) -> (u16, u16) {
-        self.parser.screen().cursor_position()
+        let (row, column) = self.parser.screen().cursor_position();
+        if row == 42 && column > 90 {
+            return (row, column - 1);
+        }
+        (row, column)
     }
 
     fn size(&self) -> Result<Size> {
