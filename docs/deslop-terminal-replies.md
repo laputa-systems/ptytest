@@ -41,8 +41,15 @@ Local driver checks also rejected a missing outcome file, an empty
 relevant selection and a zero-second budget.
 
 Use an ignored `.work/`, Python 3.14 and cargo-mutants 27.1.0, then
-run `make mutants-diff BASE=origin/main` from the trial branch.
+run `make mutants-diff BASE=origin/main` from a clean checkout.
 The first hosted checkout missed the local scratch exclusion and could
 not copy the workspace. The trial now verifies the exclusion before
 creating scratch. Lifecycle, replay and the wider configuration
 inventory remain in DSLP-4.
+
+The workflow watches terminal implementation, PTY tests and fixtures,
+the gate, build settings, and documentation. A watched test or
+settings change adds the full terminal scope. Related production edits
+join that scope even when they are in other files. Unrelated production
+edits alone use the ordinary CI jobs until their mutation scopes are
+qualified.

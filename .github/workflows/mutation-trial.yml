@@ -1,7 +1,25 @@
-name: Terminal mutation trial
+name: Terminal mutation
 
 on:
   pull_request:
+    paths:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'LICENSE.*'
+      - '.gitignore'
+      - '.cargo/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/mutation-trial.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'build.rs'
+      - 'rust-toolchain.toml'
+      - 'rust-toolchain'
+      - 'src/terminal.rs'
+      - 'tests/**'
+      - 'tools/mutants_gate.py'
+      - 'tools/mutants_gate.LICENSE'
 
 permissions:
   contents: read
@@ -9,7 +27,6 @@ permissions:
 jobs:
   mutants:
     name: Terminal mutation (${{ matrix.os }})
-    if: github.head_ref == 'ci/deslop-ptytest-terminal-gate' || github.base_ref == 'ci/deslop-ptytest-terminal-gate'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 13
     strategy:
