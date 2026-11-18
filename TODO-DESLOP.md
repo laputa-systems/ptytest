@@ -67,9 +67,9 @@ qualification remain open.
 ### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
 
 - **Area:** deslop · tests
-- **Where:** test suites and CI
-- **Problem:** Coverage and mutation results are unmeasured; no deslop mutation lane exists.
-- **Recommendation:** Run the deslop Tests step. Accept: no undispositioned survivor in critical code, the test cost budget holds, and the lane is green where the tools are mirrored.
+- **Where:** Deadline and child lifecycle in src/config.rs, src/io.rs and src/unix.rs, terminal protocol processing, replay, tests and hosted CI
+- **Problem:** The coverage target, output-wait scenario and Linux/macOS acceptance are recorded in the Report and docs/deslop-output-wait.md. All four identities in the simplified output wait were caught. The affected lz, e and ish consumers passed. Xsh reaches the same macOS compile error with the base and candidate.
+- **Recommendation:** Bound mutation to deadline relations and quiescence, terminal reply admission and failure reporting, read and trace limits, child and process-group reaping, and replay bundle behavior. Use io_regressions.rs, pty_boundary.rs and replay_cli.rs as the public witnesses. Qualify the remaining Linux and macOS union, targeted consumers, retained workflow controls and paired suite cost.
 - **Fix with:** deslop
 - **Effort:** M
 
