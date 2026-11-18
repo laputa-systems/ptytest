@@ -1,12 +1,11 @@
 use ptytest::{CommandSpec, Deadline, ExitStatus, PtyTest, PtyTestError, Scenario, TestEnv};
 use std::time::{Duration, Instant};
 
+mod support;
+use support::fixture_command as command;
+
 fn fixture(label: &str, command: CommandSpec, environment: TestEnv) -> PtyTest {
     PtyTest::spawn(Scenario::new(label).unwrap().command(command).environment(environment)).unwrap()
-}
-
-fn command() -> CommandSpec {
-    CommandSpec::new(env!("CARGO_BIN_EXE_ptytest-fixture"))
 }
 
 #[test]

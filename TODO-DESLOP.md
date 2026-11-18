@@ -49,6 +49,16 @@ The ordinary profile remains clean. No new escape hatch or runtime change.
 Linux acceptance uses the existing hosted suite. The alternate Linux
 backend was outside this macOS candidate measurement.
 
+The first Tests coverage slice at `dc8840b` runs all 67 cases on macOS
+arm64 with `make coverage`, cargo-llvm-cov 0.9.1 and nightly
+`5b7b37aef`. It measures 3,000 of 3,775 lines and 294 of 506 branches
+across `src/`, including inline tests. The integration source and
+dependency paths are outside the report. The instrumented child gets
+only `LLVM_PROFILE_FILE` from the test runner's coverage environment,
+so profiles stay in the coverage target. No profile appeared in the
+repository root on the final run. Linux-only decisions and mutation
+qualification remain open.
+
 ## Tickets
 
 
