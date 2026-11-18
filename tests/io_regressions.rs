@@ -111,12 +111,17 @@ fn continuous_output_is_bounded_by_the_read_deadline() {
     let initial_length = terminal.raw_output().len();
     terminal.send_text(Deadline::after(Duration::from_secs(2)), "flood\n").unwrap();
     wait_for_length(&mut terminal, initial_length + 8192);
-    let result = terminal.wait_for_screen(Deadline::after(Duration::from_millis(20)), "absent screen", |_| false);
+    let budget = Duration::from_millis(20);
+    let result = terminal.wait_for_screen(Deadline::after(budget), "absent screen", |_| false);
     let after_timeout = terminal.raw_output().len();
     wait_for_length(&mut terminal, after_timeout + 1);
     terminal.signal(libc::SIGKILL).unwrap();
     terminal.finish(Deadline::after(Duration::from_secs(2))).unwrap();
-    assert!(matches!(result, Err(PtyTestError::Timeout { elapsed, .. }) if elapsed >= Duration::from_millis(20)), "{result:?}");
+    assert!(
+        matches!(result, Err(PtyTestError::Timeout { deadline: Some(configured), elapsed, .. })
+            if configured == budget && elapsed >= budget),
+        "{result:?}"
+    );
 }
 
 #[test]
