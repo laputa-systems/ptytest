@@ -126,6 +126,35 @@ def selected_or_fail(relevant, names):
         raise GateError('unexpected empty selection')
 
 
+def trailing_test_module(source):
+    marker = re.search(r'^#\[cfg\(test\)\]\nmod tests \{$', source, re.M)
+    if marker is None:
+        return None
+    closing = re.compile(r'^}[ \t]*$', re.M).search(source, marker.end())
+    if closing is None or source[closing.end():].strip():
+        return None
+    return source.count('\n', 0, marker.end()) + 1
+
+
+def inline_test_changes(old, current, diff):
+    old_start = trailing_test_module(old)
+    current_start = trailing_test_module(current)
+    if old_start is None or current_start is None:
+        return False, False
+    hunks = re.finditer(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', diff, re.M)
+    changed_tests = False
+    changed_production = False
+    for hunk in hunks:
+        for line, count, start in (
+            (int(hunk[1]), int(hunk[2] or 1), old_start),
+            (int(hunk[3]), int(hunk[4] or 1), current_start),
+        ):
+            if count:
+                changed_tests |= line + count - 1 > start
+                changed_production |= line <= start
+    return changed_tests, changed_tests and not changed_production
+
+
 def main():
     started = time.monotonic()
     ignored = subprocess.run(
@@ -187,27 +216,28 @@ def main():
             if kind == 'deleted production' and path in whole:
                 raise GateError(f'protected source removed: {path}')
         production = [p for p, k in classes.items() if k == 'production']
-        if not whole and production and set(config['scope']).isdisjoint(production):
-            print('production paths outside the bounded terminal mutation scope', flush=True)
-            return
         diffs = {}
         for path in production:
-            diff = run(['git', 'diff', '--merge-base', base, '--no-ext-diff', '--', path])
+            diff = run(['git', 'diff', '--merge-base', base, '--no-ext-diff', '--unified=0', '--', path])
             if not diff and changes[path] == 'A':
-                diff = run(['git', 'diff', '--no-index', '--', '/dev/null', path], allowed=(0, 1))
+                diff = run(['git', 'diff', '--no-index', '--unified=0', '--', '/dev/null', path], allowed=(0, 1))
             diffs[path] = diff
             old = run(['git', 'show', f'{base_sha}:{path}'], allowed=(0, 128))
             current = (ROOT / path).read_text()
-            old_line = next((i for i, x in enumerate(old.splitlines(), 1) if x.strip() == '#[cfg(test)]'), 10**9)
-            new_line = next((i for i, x in enumerate(current.splitlines(), 1) if x.strip() == '#[cfg(test)]'), 10**9)
-            for match in re.finditer(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', diff, re.M):
-                old_end = int(match[1]) + int(match[2] or 1) - 1
-                new_end = int(match[3]) + int(match[4] or 1) - 1
-                if old_end >= old_line or new_end >= new_line:
-                    whole.update(config['scope'])
+            has_tests, tests_only = inline_test_changes(old, current, diff)
+            if has_tests:
+                whole.update(config['scope'])
+            if tests_only:
+                classes[path] = 'inline tests'
+                print(f'inline tests only: {path}', flush=True)
+        production = [p for p in production if classes[p] == 'production']
+        if not whole and production and set(config['scope']).isdisjoint(production):
+            print('production paths outside the bounded terminal mutation scope', flush=True)
+            return
+        for path in production:
             if path not in whole:
                 file_diff = run_root / 'file.diff'
-                file_diff.write_text(diff)
+                file_diff.write_text(diffs[path])
                 if not listing(['--in-diff', str(file_diff)]):
                     whole.add(path)
         in_diff = [p for p in production if p not in whole]
