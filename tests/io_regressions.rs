@@ -76,23 +76,24 @@ fn cleanup_reaps_after_terminal_query_or_trace_failure() {
 #[test]
 fn continuous_output_is_bounded_by_the_read_deadline() {
     let environment = TestEnv::hermetic().unwrap();
-    let barrier = environment.paths().temp().join("cleanup-output-ready");
     let mut terminal = fixture("continuous output deadline", command().arg("--cleanup-failure"), environment);
     terminal.wait_for_screen(Deadline::after(Duration::from_secs(2)), "ready", |s| s.contains("CLEANUP_READY")).unwrap();
+    let wait_for_length = |terminal: &mut PtyTest, minimum: usize| {
+        let until = Instant::now() + Duration::from_secs(2);
+        while terminal.raw_output().len() < minimum && Instant::now() < until {
+            terminal.wait_for_output(Deadline::after(Duration::from_millis(25))).unwrap();
+        }
+        assert!(terminal.raw_output().len() >= minimum, "continuous output never reached the reader");
+    };
+    let initial_length = terminal.raw_output().len();
     terminal.send_text(Deadline::after(Duration::from_secs(2)), "flood\n").unwrap();
-    let until = Instant::now() + Duration::from_secs(2);
-    while !barrier.exists() && Instant::now() < until {
-        std::thread::yield_now();
-    }
-    assert!(barrier.exists());
+    wait_for_length(&mut terminal, initial_length + 8192);
     let result = terminal.wait_for_screen(Deadline::after(Duration::from_millis(20)), "absent screen", |_| false);
-    let bytes_observed = terminal.raw_output().len();
-    let activity = terminal.wait_for_output(Deadline::after(Duration::from_millis(20))).unwrap();
+    let after_timeout = terminal.raw_output().len();
+    wait_for_length(&mut terminal, after_timeout + 1);
     terminal.signal(libc::SIGKILL).unwrap();
     terminal.finish(Deadline::after(Duration::from_secs(2))).unwrap();
     assert!(matches!(result, Err(PtyTestError::Timeout { elapsed, .. }) if elapsed >= Duration::from_millis(20)), "{result:?}");
-    assert!(bytes_observed > 8192, "continuous output never reached the reader");
-    assert!(activity, "output observed before the read timeout was lost");
 }
 
 #[test]
