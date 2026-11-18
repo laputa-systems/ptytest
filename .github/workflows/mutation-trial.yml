@@ -1,0 +1,66 @@
+name: Terminal mutation
+
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'LICENSE.*'
+      - '.gitignore'
+      - '.cargo/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/mutation-trial.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'build.rs'
+      - 'rust-toolchain.toml'
+      - 'rust-toolchain'
+      - 'src/terminal.rs'
+      - 'tests/**'
+      - 'tools/mutants_gate.py'
+      - 'tools/mutants_gate.LICENSE'
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    name: Terminal mutation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 13
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04-arm, xcode-27]
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      RUST_TEST_THREADS: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - run: rustup show active-toolchain
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: cargo-mutants@27.1.0
+      - name: Mutants
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          printf '\n.work/\n' >> "$(git rev-parse --git-path info/exclude)"
+          mkdir -p .work/tmp
+          TMPDIR="$PWD/.work/tmp" make mutants-diff BASE="origin/$BASE_REF"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: terminal-mutation-${{ matrix.os }}
+          path: .work/mutants-gate/
+          include-hidden-files: true
+          retention-days: 7
