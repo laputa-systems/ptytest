@@ -10,7 +10,7 @@ The package is published as `laputa-ptytest`; the library target is named
 
 ```toml
 [dev-dependencies]
-laputa-ptytest = "0.3"
+laputa-ptytest = "0.4"
 ```
 
 ## Use in a test
@@ -39,9 +39,10 @@ fn test_startup() -> Result<(), ptytest::PtyTestError> {
 }
 ```
 
-Operations that may wait take an explicit `Deadline`. A timeout or failed
-assertion writes a failure bundle under `target/ptytest-failures/`, including
-the screen, event trace, and captured input/output. Inspect it offline with:
+Waiting operations take a `Deadline`. Timeouts and failed PTY assertions
+write a bundle under `target/ptytest-failures/` with the screen, event trace,
+and captured input and output. Dropping a live harness preserves that bundle.
+Inspect it offline with:
 
 ```sh
 cargo run --locked --bin ptytest-replay -- target/ptytest-failures/<bundle>
