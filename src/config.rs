@@ -17,7 +17,7 @@ pub struct Size {
 
 impl Size {
     pub fn new(columns: u16, rows: u16) -> Result<Self> {
-        if columns == 0 || rows == 0 {
+        if rows == 0 || columns == 0 {
             return Err(PtyTestError::InvalidSize { columns, rows });
         }
         Ok(Self { columns, rows })
