@@ -195,7 +195,7 @@ fn cpr_uses_the_cursor_at_the_query_and_traces_both_directions() {
         .unwrap();
     terminal
         .wait_for_screen(deadline(&terminal), "CPR response", |screen| {
-            screen.contains("QUERY_CPR_REPLY:\\x1b[2;2R")
+            screen.contains("QUERY_CPR_REPLY:\\x1b[2;4R")
         })
         .unwrap();
 
@@ -218,8 +218,8 @@ fn cpr_uses_the_cursor_at_the_query_and_traces_both_directions() {
     assert!(
         std::fs::read(bundle.join("input.bin"))
             .unwrap()
-            .windows(b"\x1b[2;2R".len())
-            .any(|bytes| bytes == b"\x1b[2;2R")
+            .windows(b"\x1b[2;4R".len())
+            .any(|bytes| bytes == b"\x1b[2;4R")
     );
     terminal.finish(deadline(&terminal)).unwrap();
 }
