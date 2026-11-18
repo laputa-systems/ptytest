@@ -60,7 +60,7 @@ impl Deadline {
 
     pub(crate) fn bounded_after(self, duration: Duration) -> Option<Self> {
         let started_at = Instant::now();
-        let remaining = self.instant.checked_duration_since(started_at)?;
+        let remaining = self.remaining_at(started_at)?;
         Some(Self {
             instant: started_at + duration.min(remaining),
             configured_for: None,
@@ -69,7 +69,13 @@ impl Deadline {
     }
 
     pub(crate) fn remaining(self) -> Option<Duration> {
-        self.instant.checked_duration_since(Instant::now())
+        self.remaining_at(Instant::now())
+    }
+
+    fn remaining_at(self, now: Instant) -> Option<Duration> {
+        self.instant
+            .checked_duration_since(now)
+            .filter(|remaining| !remaining.is_zero())
     }
 
     pub(crate) fn expired(self) -> bool {
@@ -577,6 +583,17 @@ fn sanitize_label(label: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deadline_has_no_time_remaining_at_its_end() {
+        let now = Instant::now();
+        let interval = Duration::from_millis(1);
+        let deadline = Deadline::from_instant(now + interval);
+
+        assert_eq!(deadline.remaining_at(now), Some(interval));
+        assert_eq!(deadline.remaining_at(now + interval), None);
+        assert_eq!(deadline.remaining_at(now + interval * 2), None);
+    }
 
     #[test]
     fn size_rejects_zero_dimensions() {
