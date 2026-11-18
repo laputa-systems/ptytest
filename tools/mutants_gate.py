@@ -26,7 +26,7 @@ class GateError(Exception):
 def untested(pending):
     shown = ', '.join(pending[:10])
     more = f' and {len(pending) - 10} more' if len(pending) > 10 else ''
-    return f'budget exhausted; {len(pending)} untested: {shown}{more}'
+    return f'{len(pending)} untested: {shown}{more}'
 
 
 def classify(path, status, config):
@@ -128,6 +128,11 @@ def selected_or_fail(relevant, names):
 
 def main():
     started = time.monotonic()
+    ignored = subprocess.run(
+        ['git', 'check-ignore', '-q', '--', '.work/tmp'], cwd=ROOT, check=False,
+    )
+    if ignored.returncode != 0:
+        raise GateError('exclude .work/ before creating mutation scratch')
     config = tomllib.loads(CONFIG.read_text())
     deadline = started + config['budget_seconds']
     WORK.mkdir(parents=True, exist_ok=True)
@@ -146,7 +151,7 @@ def main():
     def run(args, *, allowed=(0,), capture=True):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise GateError(untested(pending))
+            raise GateError('budget exhausted; ' + untested(pending))
         process = subprocess.Popen(args, cwd=ROOT, text=True, stdout=subprocess.PIPE if capture else None,
                                    stderr=subprocess.PIPE if capture else None, start_new_session=True)
         try:
@@ -154,7 +159,7 @@ def main():
         except subprocess.TimeoutExpired as error:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
-            raise GateError(untested(pending)) from error
+            raise GateError('budget exhausted; ' + untested(pending)) from error
         if process.returncode not in allowed:
             raise GateError(f'command failed ({process.returncode}): {args}: {stderr or ""}')
         return stdout if capture else ''
