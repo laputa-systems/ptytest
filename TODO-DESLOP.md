@@ -5,18 +5,20 @@ Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/mai
 
 ## Report
 
-Not started.
+Ground at `3fd48af` found a deadline equality failure that allowed a write to
+proceed on the expiry tick. [#13](https://github.com/laputa-systems/ptytest/pull/13)
+adds a deterministic regression and passes hosted PTY acceptance on Linux
+arm64 and macOS. The candidate was loaded through a Cargo path override in
+the e, fz, tm, and lz consumer suites. The Ish denv case failed with both the
+candidate and the released dependency. The xshi suite hit a pre-existing macOS
+build error. Soulseek-rs uses the 0.3 series.
+
+The shared Make entry points passed all 66 tests and Clippy on macOS arm64
+after integration with `bed1e5d`. The Verification section maps the library
+and replay CLI contracts to their tests. Diagnose is next.
 
 ## Tickets
 
-### DSLP-1 · P2 · Ground: baseline, boundaries, and CI test entry point
-
-- **Area:** deslop · ground
-- **Where:** AGENTS.md, Makefile, .github/workflows/
-- **Problem:** Base d8a2867; code lines Rust 6.2k (fleet/loc/v1, vendored included); timings not yet measured. CI does not run make test: runs tests directly on pull requests; run make test or make test-ci instead so CI and local verification share one entry point. Open fleet lint findings: laputa-rustix 1, make-clean-target 1. Consumers in the fleet: e, fz, ish, lz, soulseek-rs, tm, xsh; their tests are the consumer check for API changes. Perf gate: decide in Ground whether a user-visible hot path needs a workload.
-- **Recommendation:** Run the deslop Ground step. Accept: CI runs make test and is green, and AGENTS.md has a Verification section.
-- **Fix with:** deslop
-- **Effort:** S
 
 ### DSLP-2 · P2 · Diagnose: ultrareview into this backlog
 

@@ -42,8 +42,8 @@ jobs:
           rustc -Vv
           uname -sr
           locale -a
-      - run: cargo clippy --locked --all-targets --all-features -- --deny warnings
-      - run: cargo test --locked
+      - run: make lint
+      - run: make test
       - run: cargo test --locked -- --test-threads=1
       - name: Upload PTY failure evidence
         if: ${{ failure() }}
