@@ -9,6 +9,29 @@ fn fixture(label: &str, command: CommandSpec, environment: TestEnv) -> PtyTest {
 }
 
 #[test]
+fn wait_for_output_distinguishes_idle_from_new_bytes() {
+    let mut terminal = fixture("output activity", command(), TestEnv::hermetic().unwrap());
+    let ready_until = Instant::now() + Duration::from_secs(2);
+    while !terminal.raw_output().ends_with(b"PTYTEST_READY\r\n") {
+        assert!(Instant::now() < ready_until, "fixture did not complete its readiness line");
+        assert!(terminal.wait_for_output(Deadline::from_instant(ready_until)).unwrap());
+    }
+    let initial_length = terminal.raw_output().len();
+    assert!(!terminal.wait_for_output(Deadline::after(Duration::ZERO)).unwrap());
+    let idle = Duration::from_millis(30);
+    let started = Instant::now();
+    assert!(!terminal.wait_for_output(Deadline::after(idle)).unwrap());
+    assert!(started.elapsed() >= idle);
+    assert_eq!(terminal.raw_output().len(), initial_length);
+
+    terminal.send_text(Deadline::after(Duration::from_secs(2)), "input\n").unwrap();
+    assert!(terminal.wait_for_output(Deadline::after(Duration::from_secs(2))).unwrap());
+    assert!(terminal.raw_output().len() > initial_length);
+    terminal.wait_for_screen(Deadline::after(Duration::from_secs(2)), "input acknowledgment", |s| s.contains("INPUT_ACK")).unwrap();
+    terminal.finish(Deadline::after(Duration::from_secs(2))).unwrap();
+}
+
+#[test]
 fn quiescence_waits_the_full_quiet_interval() {
     let mut terminal = fixture("full quiet interval", command(), TestEnv::hermetic().unwrap());
     terminal.wait_for_screen(Deadline::after(Duration::from_secs(2)), "ready", |s| s.contains("PTYTEST_READY")).unwrap();
