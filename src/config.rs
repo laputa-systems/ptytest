@@ -17,14 +17,15 @@ pub struct Size {
 
 impl Size {
     pub fn new(columns: u16, rows: u16) -> Result<Self> {
-        if rows == 0 || columns == 0 {
+        if columns == 0 || rows == 0 {
             return Err(PtyTestError::InvalidSize { columns, rows });
         }
         Ok(Self { columns, rows })
     }
 
     pub const fn columns(self) -> u16 {
-        self.columns
+        let Self { columns, .. } = self;
+        columns
     }
 
     pub const fn rows(self) -> u16 {
