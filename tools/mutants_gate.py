@@ -187,6 +187,9 @@ def main():
             if kind == 'deleted production' and path in whole:
                 raise GateError(f'protected source removed: {path}')
         production = [p for p, k in classes.items() if k == 'production']
+        if not whole and production and set(config['scope']).isdisjoint(production):
+            print('production paths outside the bounded terminal mutation scope', flush=True)
+            return
         diffs = {}
         for path in production:
             diff = run(['git', 'diff', '--merge-base', base, '--no-ext-diff', '--', path])
