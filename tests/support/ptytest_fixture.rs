@@ -57,8 +57,7 @@ fn main() {
                 line(&format!("QUERY_REPLY:{}", escaped(&reply)));
             }
             Some("query-cpr-with-trailing-output") => {
-                // The reply must use the cursor after `A`, before `BC`.
-                write_all(b"A\x1b[6nBC");
+                write_all(b"ABC\x1b[6nDE");
                 let reply = read_until(b'R');
                 line(&format!("QUERY_CPR_REPLY:{}", escaped(&reply)));
             }
