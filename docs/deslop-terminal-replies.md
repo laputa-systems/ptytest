@@ -17,3 +17,5 @@ SHA-256 `92a131d4ac7b35501b8a325ed4f343a5c6ba0c5e3e0e137aac879df5b5984c9b`.
 In a disposable checkout, set `TMPDIR` to `.work/tmp` and run
 `cargo mutants --no-config --file src/terminal.rs --timeout 25 -- --locked`.
 This scope exercises the terminal adapter and its PTY cursor reply.
+
+The terminal mutation trial uses the same ordinary PTY tests as the terminal reply witness.
