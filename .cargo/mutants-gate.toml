@@ -1,0 +1,6 @@
+scope = ["src/terminal.rs"]
+irrelevant = ["*.md", "LICENSE", "LICENSE.*", "tools/mutants_gate.LICENSE"]
+budget_seconds = 600
+timeout_seconds = 25
+build_timeout_seconds = 300
+jobs = 2
