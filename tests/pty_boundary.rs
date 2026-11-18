@@ -4,9 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-fn fixture() -> CommandSpec {
-    CommandSpec::new(env!("CARGO_BIN_EXE_ptytest-fixture"))
-}
+mod support;
+use support::fixture_command as fixture;
 
 fn scenario(label: &str) -> Scenario {
     Scenario::new(label)

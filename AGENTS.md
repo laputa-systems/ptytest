@@ -7,6 +7,7 @@ Build: `cargo build --locked --all-targets` · Test: `make test` · Check: `make
 ## Verification
 
 - `make test` and `make lint` are the CI entry points on Linux arm64 and macOS. CI also runs the single-threaded suite. A fresh macOS arm64 target at `3fd48af` passed in 12.26s under host load. The first warm run exposed the deadline equality failure tracked in [#13](https://github.com/laputa-systems/ptytest/pull/13).
+- `make coverage` runs the suite with cargo-llvm-cov 0.9.1 and the pinned toolchain's LLVM tools. It writes owned source branch coverage to `.work/coverage/summary.json`.
 - Real PTY, direct spawn, process cleanup, resize and signals: `tests/pty_boundary.rs`. Deadlines, quiescence and bounded reads and writes: `tests/io_regressions.rs`.
 - Screen cells, modes, split terminal sequences and approved replies: `src/terminal.rs`, `src/protocol.rs` and `tests/pty_boundary.rs`. The scheduled differential corpus checks shared behavior against the independent terminal backend.
 - Failure bundles, event JSONL and replay: `tests/pty_boundary.rs` and `src/replay.rs`. Replay CLI help and exit success: `tests/replay_cli.rs`.
