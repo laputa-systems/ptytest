@@ -47,9 +47,9 @@ not copy the workspace. The trial now verifies the exclusion before
 creating scratch. Lifecycle, replay and the wider configuration
 inventory remain in DSLP-4.
 
-The workflow watches terminal implementation, PTY tests and fixtures,
-the gate, build settings, and documentation. A watched test or
-settings change adds the full terminal scope. Related production edits
-join that scope even when they are in other files. Unrelated production
-edits alone use the ordinary CI jobs until their mutation scopes are
-qualified.
+The workflow classifies every pull request. It runs the protected terminal
+scope for its source, tests, fixtures and build settings. Production
+edits in the same change join that selection. Changes consisting of
+documentation or production outside the protected scope receive an
+explicit disposition. The other production scopes still use ordinary
+CI while their mutation inventories are qualified.
