@@ -37,3 +37,26 @@ CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 cargo mutants \
 Use an outer ten-minute timeout and a separate output directory per run.
 Compare `mutants.out/outcomes.json` by identity and require both unmutated
 suites to pass. This selection covers only the output wait method.
+
+## Deadline handling
+
+The follow-up at base `fcb35843` removes two redundant deadline queries.
+The read loop and terminal replies use the caller's deadline, and the
+protocol scanner can return protocol errors. Poll emits Timeout when no
+time remains on the same deadline. An output wait handles either timeout
+as the ordinary end of its wait. Other errors still propagate.
+
+At source blob `37ee8139cbd71a77e0954b58f8aba63dc20c5ee7`, the same
+selector found four identities and caught all four in 36 seconds. The
+four previous guard substitutions disappear with the guards. All 68
+library tests and Clippy passed on macOS arm64.
+
+The following consumers resolved `laputa-ptytest@0.4.0` to the candidate
+with Cargo path overrides. All invocations used locked, offline resolution.
+
+| Consumer | Invocation | Result |
+| --- | --- | --- |
+| lz `722d74c` | `cargo test --test parity -- --case invocation-quit-one-screen-empty --mode admitted` | Passed against the checksum-verified less 668 reference. |
+| e `b29c901` | `cargo test --test e2e save_quit::save_writes_file -- --exact` | One passed. |
+| ish `fc62468` | `cargo test --test external_signals external_commands_restore_terminal_signals_in_every_context -- --exact` | One passed. |
+| xsh `5f41e9a` | `cargo test -p xshi --features laputa-asterinas --test parity dollar_completes_shell_variables_exported_or_not -- --exact` | macOS compilation failed at `src/modules/fs.rs:2415` with the same `st_dev` type mismatch on the base and candidate. |

@@ -292,7 +292,7 @@ impl PtyTest {
         loop {
             match self.read_available(deadline) {
                 Ok(()) => {}
-                Err(PtyTestError::Timeout { .. }) if deadline.expired() => {
+                Err(PtyTestError::Timeout { .. }) => {
                     return Ok(self.output.len() != initial_length);
                 }
                 Err(error) => return Err(error),
@@ -305,7 +305,7 @@ impl PtyTest {
             }
             match self.wait_for_activity(deadline) {
                 Ok(()) => {}
-                Err(PtyTestError::Timeout { .. }) if deadline.expired() => return Ok(false),
+                Err(PtyTestError::Timeout { .. }) => return Ok(false),
                 Err(error) => return Err(error),
             }
         }
