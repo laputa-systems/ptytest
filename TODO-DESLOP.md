@@ -59,19 +59,60 @@ so profiles stay in the coverage target. No profile appeared in the
 repository root on the final run. Linux-only decisions and mutation
 qualification remain open.
 
+**Tests inventory at `606027b` (macOS arm64)**
+
+| Public contract and critical decisions | Witnesses and remaining gaps |
+| --- | --- |
+| Direct exec, PTY ownership, size and resize, signals, EOF, hangup, child and group cleanup | `tests/pty_boundary.rs`: controlling terminal, spawn failure, resize/SIGWINCH, SIGINT, EOF/hangup, descendant and zombie leader, descriptor and SIGPIPE tests; `tests/io_regressions.rs`: cleanup and drop after errors. Escaped process groups and every OS failure remain untested. |
+| Deadlines, output, quiet periods, bounded reads and writes | `src/config.rs` deadline equality; `tests/io_regressions.rs` idle/new bytes, quiescence, expired writes, flood and budget. Kernel interruption and boundary races are not exhaustively tested. |
+| Bytes, terminal cells, modes, split UTF-8 and controls, explicit profile and replies | `src/terminal.rs` partition and differential corpus, `src/protocol.rs` profile tests, `tests/pty_boundary.rs` split CSI and query reply tests. The differential corpus covers shared backend behavior, not every VT sequence. |
+| Environment, configuration and snapshots | `src/config.rs` size, locale, environment and scratch tests; `tests/pty_boundary.rs` attribute comparison. All combinations and filesystem failures are untested. |
+| Failure bundles, JSONL and replay; replay CLI | `tests/pty_boundary.rs` timeout bundle and drop preservation; `src/replay.rs` ranges, schema, escapes and query/reply validation; `tests/replay_cli.rs` help. CLI error exits and malformed bundle combinations are not exhaustively tested. |
+
+The supported CI shapes are Linux arm64 and macOS, normal and single-threaded
+suite; this inventory is not evidence for other Unix targets. Critical
+regions are expiry comparisons, quiescence, profile admission and reply
+ordering, limits, child and process-group reaping, and replay validation.
+The retained selector covers `src/terminal.rs`; it is unchanged. Hosted
+controls and trial results are in `docs/deslop-terminal-replies.md`.
+
+Dispositions by behavior, separating historical trial counts from this
+inventory: deadline trial at `d60bf6d` caught 13, with five unviable and
+no survivors or timeouts. Terminal trial at `b5ad4b9` caught 13, with five
+unviable and no survivors or timeouts on each platform. Output-wait trial
+at `6a31b11` had two equivalent true guards and one untested poll-timeout
+false guard; the subsequent simplification removed these guards and caught
+all four remaining identities. Control-only survivors (four constant cursor
+positions, seven of 11 uncovered branch identities, and additional
+configuration identities under whole-file fallback) demonstrate selector
+sensitivity, not candidate results. Configuration survivors were not individually
+classified: accepted risk for the advisory fallback, not a clean mutation run.
+Lifecycle, replay, remaining configuration and broader protocol mutations
+were not run; their behavior is untested by mutation, not declared equivalent.
+No timeout is recorded in the completed deadline or terminal trials; wider
+unrun regions have no timeout result. Unsupported environments: non-Linux,
+non-macOS Unix and local Linux execution in this step need environment proof.
+
+Acceptance is `make test`, `make lint`, hosted platform and single-threaded
+suite, with `make coverage` and the retained `make mutants-diff` lane as
+existing evidence. Historical coverage at `dc8840b` is 3000/3775 lines and
+294/506 branches, not a current measurement. Local cargo-llvm-cov and
+cargo-mutants are unavailable (Needs environment); no new mutation or coverage
+claim is made. Ground's fresh 12.26s is a loaded-host reference, not a paired
+performance gate; no current paired suite-cost claim is made (Needs environment).
+No CI or retained scope change was made.
+
+Consumers: output-wait candidate `e900a50` passed lz `722d74c`, e `b29c901`
+and ish `fc62468` with path overrides; xsh `5f41e9a` failed to compile on
+both base and candidate on macOS (`docs/deslop-output-wait.md`). Earlier #13
+and #15 exercised fz and tm, and #13 exercised e, lz; exact scope and base
+failures are recorded above. Soulseek-rs uses 0.3 and was not tested against
+this candidate; xsh remains Needs environment or upstream repair. Remaining
+consumer release qualification is untested, not a passing result. This final
+inventory changes no runtime behavior and therefore requires no fresh consumer
+run. No important new gap was demonstrated that warrants a new test.
+
 ## Tickets
-
-
-
-
-### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
-
-- **Area:** deslop · tests
-- **Where:** Deadline and child lifecycle in src/config.rs, src/io.rs and src/unix.rs, terminal protocol processing, replay, tests and hosted CI
-- **Problem:** The coverage target, output-wait scenario and Linux/macOS acceptance are recorded in the Report and docs/deslop-output-wait.md. All four identities in the simplified output wait were caught. The affected lz, e and ish consumers passed. Xsh reaches the same macOS compile error with the base and candidate.
-- **Recommendation:** Bound mutation to deadline relations and quiescence, terminal reply admission and failure reporting, read and trace limits, child and process-group reaping, and replay bundle behavior. Use io_regressions.rs, pty_boundary.rs and replay_cli.rs as the public witnesses. Qualify the remaining Linux and macOS union, targeted consumers, retained workflow controls and paired suite cost.
-- **Fix with:** deslop
-- **Effort:** M
 
 ### DSLP-5 · P2 · Dead code: tools and debloat
 
