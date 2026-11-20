@@ -26,8 +26,8 @@ passed 67 tests and Clippy. Linux and macOS acceptance passed in #15.
 The #15 path override passed fz's default-TTY case, four tm attached cases,
 and lz's named less 668 parity case. The focused e and ish failures also
 occurred with base `5176d94`. The linked PR records their commands and
-consumer revisions. Soulseek-rs and xsh were outside that run. Types,
-broader mutation inventory and consumer release qualification remain open.
+consumer revisions. Soulseek-rs and xsh were outside that run. At that point Types, broader mutation inventory and consumer release
+qualification remained open.
 
 Types at `0edcf81` used Clippy on all targets and features with the pinned
 nightly `5b7b37aef` on macOS arm64. Add `-W unsafe_code` and `-W
@@ -56,8 +56,8 @@ across `src/`, including inline tests. The integration source and
 dependency paths are outside the report. The instrumented child gets
 only `LLVM_PROFILE_FILE` from the test runner's coverage environment,
 so profiles stay in the coverage target. No profile appeared in the
-repository root on the final run. Linux-only decisions and mutation
-qualification remain open.
+repository root on the final run. Linux-only decisions and broader mutation
+qualification were not measured in that slice.
 
 **Tests inventory at `606027b` (macOS arm64)**
 
@@ -150,6 +150,28 @@ workload registry or attribution profiles to validate. Rank: missing
 representative journeys first, resource and attribution measurements second,
 operability and gating third. DSLP-6 files the combined P3 gap. Until a harness
 exists, no benchmark tier, timings or regression verdict is claimed.
+
+
+**Lane completion review.** Intent: finish the bounded Tests, Dead code,
+Bench and Report steps without changing runtime behavior. Reviewed the entire
+`606027b..1c3441a` diff against the cited tests, mutation reports, manifest
+and verification commands. No demonstrated defect or contract change was
+found. No independent reviewer was used under the worker's leaf constraint.
+The report's unrun regions and environment gaps remain unverified.
+
+The lane changed documentation and backlog only. At admission and after the
+lane, tracked Rust source has 5,593 lines under `src/` (including inline
+tests) and 1,322 under `tests/`; no code or dependency was removed. Escape
+hatches were not recounted because source did not change. The macOS warm
+`make test` retry passed 68 tests in 4.44s on a busy host; `make lint` passed
+in 24.39s. These are observations, not a paired suite-cost verdict. Earlier
+coverage and mutation counts and their revisions are listed above. No new
+coverage, mutation, performance or consumer run is claimed. No new P1 or P2
+was found; DSLP-4 and DSLP-5 closed, and DSLP-6 was filed at P3. No escaped
+regression was observed in this documentation-only lane. No shared-file change
+was made; unavailable local cargo-machete, cargo-llvm-cov and cargo-mutants
+remain tool-environment gaps. Historical hosted CI costs are in the terminal
+trial record; this lane consumed no CI minutes.
 
 ## Tickets
 
