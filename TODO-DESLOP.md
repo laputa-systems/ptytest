@@ -112,14 +112,24 @@ consumer release qualification is untested, not a passing result. This final
 inventory changes no runtime behavior and therefore requires no fresh consumer
 run. No important new gap was demonstrated that warrants a new test.
 
+**Dead code and debloat at `21a4923`.** `make lint` checks all targets and
+features with warnings denied on macOS; rustc reported no dead-code warnings.
+`cargo machete` and `cargo udeps --version` each exited 101 because neither
+command is installed (Needs environment). Direct source search finds uses of
+all four runtime dependencies and the differential test dependency. Linux-only
+conditional code was not scanned by the local compiler. No dependency or code
+was removed, and no allowlist was added.
+
+The debloat review traced the public harness through configuration, Unix PTY,
+I/O, protocol, terminal and artifact/replay boundaries. The scanner enforces
+an explicit allowlist, the terminal adapter provides a backend-independent
+snapshot, and replay validates recorded traffic; removing these layers would
+remove documented behavior. Process-group cleanup and the differential oracle
+also protect named boundary tests. The mutation selector and release tooling
+have declared entry points; CI is outside this lane's edit authority. No
+behavior-preserving cut was established. Public exports are library contracts,
+so absence of an in-tree caller alone is not removal evidence. The dependency
+scanner and Linux compilation remain environment gaps, not clean results.
+
 ## Tickets
-
-### DSLP-5 · P2 · Dead code: tools and debloat
-
-- **Area:** deslop · dead code
-- **Where:** whole repository
-- **Problem:** No dead-code scan has run.
-- **Recommendation:** Run the deslop Dead code step. Accept: tools clean or allowlisted with reasons; walk-backs filed as Needs owner tickets.
-- **Fix with:** deslop
-- **Effort:** M
 
