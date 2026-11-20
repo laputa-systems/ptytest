@@ -1,5 +1,5 @@
 Prefix: DSLP
-Next: 6
+Next: 7
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier Calibration). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
@@ -131,5 +131,34 @@ behavior-preserving cut was established. Public exports are library contracts,
 so absence of an in-tree caller alone is not removal evidence. The dependency
 scanner and Linux compilation remain environment gaps, not clean results.
 
+
+**Bench audit at `7bfd4a8`.** No benchmark harness, benchmark target or
+performance gate was found in Cargo.toml, Makefile, tools or tests. Functional
+PTY tests have correctness oracles but are not timed performance workloads.
+There is no existing harness on which to add or prove an Edit and Change
+entrypoint. Full was not run.
+
+| Outcome | Existing benchmark | Gap and cheapest attribution |
+| --- | --- | --- |
+| Spawn, readiness and cleanup latency | none | Real PTY journey with completed-work and exit checks; sample the process tree. |
+| Output wait and terminal round-trip latency and throughput | none | Feed a representative trace, check bytes and screen, count bytes and sample CPU. |
+| Failure bundle and replay cost | none | Replay a bounded bundle and check its reconstructed screen; count I/O and sample CPU. |
+| Memory, allocations and artifact size | none | Measure peak process-tree footprint, allocations and bundle bytes on those journeys. |
+
+There are no sample counts, comparison anchors, host gates, preflight,
+workload registry or attribution profiles to validate. Rank: missing
+representative journeys first, resource and attribution measurements second,
+operability and gating third. DSLP-6 files the combined P3 gap. Until a harness
+exists, no benchmark tier, timings or regression verdict is claimed.
+
 ## Tickets
+
+### DSLP-6 · P3 · Measure representative PTY workloads
+
+- **Area:** performance · benchmarks
+- **Where:** PTY spawn, output waits, terminal processing and failure replay
+- **Problem:** No benchmark harness measures end-to-end latency, throughput, memory or attribution for real PTY journeys, so functional tests cannot detect performance regressions.
+- **Recommendation:** Build representative completed-work workloads with correctness oracles, resource attribution and interleaved baseline comparisons; provide tiered preflight and selectors once a harness exists.
+- **Fix with:** bench-pyramid
+- **Effort:** M
 
