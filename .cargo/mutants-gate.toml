@@ -1,4 +1,5 @@
 scope = ["src/terminal.rs"]
+critical = '(?: in |: replace )(?:[A-Za-z_][A-Za-z0-9_]*::)*(?:wait_for_output|wait_for_quiescence|wait_for_screen|wait_for_screen_change|wait_for_exit|write_all|read_available|wait_for_activity|poll|bounded_after|remaining|remaining_at|expired|unhandled_csi|process|resize|synchronized_update_pending|release_synchronized_update|abandon_synchronized_update|presented|cursor_position|snapshot|live_snapshot|state|live_state|screen_size|cursor_of|modes_of|row_wrapped_of|state_of|snapshot_of|map_color|observe|observe_byte|complete_escape|complete_csi|complete_string|validate_c0|allowed_csi|finish)(?:$| -> )'
 irrelevant = ["*.md", "LICENSE", "LICENSE.*", "tools/mutants_gate.LICENSE"]
 budget_seconds = 600
 timeout_seconds = 25
