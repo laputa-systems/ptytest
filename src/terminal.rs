@@ -6,14 +6,52 @@ use crate::snapshot::{
 };
 use crate::{Result, Size};
 
+/// Synchronized output (DEC private mode 2026): between `CSI ? 2026 h` and
+/// `CSI ? 2026 l` a terminal keeps presenting the screen as it was when the
+/// update began. vt100 does not implement the mode, so it reports it here as
+/// an unhandled private-mode sequence, in stream order and across split reads.
+#[derive(Default)]
+struct SynchronizedUpdate {
+    frozen: Option<vt100::Screen>,
+}
+
+impl vt100::Callbacks for SynchronizedUpdate {
+    fn unhandled_csi(
+        &mut self,
+        screen: &mut vt100::Screen,
+        i1: Option<u8>,
+        i2: Option<u8>,
+        params: &[&[u16]],
+        c: char,
+    ) {
+        if i1 != Some(b'?') || i2.is_some() || !params.iter().any(|param| *param == [2026]) {
+            return;
+        }
+        match c {
+            'h' if self.frozen.is_none() => self.frozen = Some(screen.clone()),
+            'l' => self.frozen = None,
+            _ => {}
+        }
+    }
+}
+
+/// The terminal model. Presentation accessors (`snapshot`, `state`) show the
+/// screen as of the last completed synchronized update while one is in
+/// progress. `cursor_position` and `live_*` always show the child's latest
+/// state, which is what its own queries and key encoding depend on.
 pub(crate) struct TerminalBackend {
-    parser: vt100::Parser,
+    parser: vt100::Parser<SynchronizedUpdate>,
 }
 
 impl TerminalBackend {
     pub(crate) fn new(size: Size) -> Self {
         Self {
-            parser: vt100::Parser::new(nonzero(size.rows()), nonzero(size.columns()), 0),
+            parser: vt100::Parser::new_with_callbacks(
+                nonzero(size.rows()),
+                nonzero(size.columns()),
+                0,
+                SynchronizedUpdate::default(),
+            ),
         }
     }
 
@@ -22,9 +60,30 @@ impl TerminalBackend {
     }
 
     pub(crate) fn resize(&mut self, size: Size) {
+        let (rows, columns) = (nonzero(size.rows()), nonzero(size.columns()));
+        self.parser.screen_mut().set_size(rows, columns);
+        if let Some(frozen) = self.parser.callbacks_mut().frozen.as_mut() {
+            frozen.set_size(rows, columns);
+        }
+    }
+
+    /// Whether a synchronized update has begun and not yet ended.
+    pub(crate) fn synchronized_update_pending(&self) -> bool {
+        self.parser.callbacks().frozen.is_some()
+    }
+
+    /// Ends a pending update without its terminator, so the presented screen
+    /// becomes the latest state. Returns whether an update was pending.
+    pub(crate) fn release_synchronized_update(&mut self) -> bool {
+        self.parser.callbacks_mut().frozen.take().is_some()
+    }
+
+    fn presented(&self) -> &vt100::Screen {
         self.parser
-            .screen_mut()
-            .set_size(nonzero(size.rows()), nonzero(size.columns()));
+            .callbacks()
+            .frozen
+            .as_ref()
+            .unwrap_or_else(|| self.parser.screen())
     }
 
     /// Cursor row and column without copying the screen. The protocol peer
@@ -33,95 +92,107 @@ impl TerminalBackend {
         self.parser.screen().cursor_position()
     }
 
-    fn size(&self) -> Result<Size> {
-        let (rows, columns) = self.parser.screen().size();
-        Size::new(columns.get(), rows.get())
-    }
-
-    fn cursor(&self) -> Cursor {
-        let screen = self.parser.screen();
-        let (row, column) = screen.cursor_position();
-        Cursor {
-            row,
-            column,
-            visible: !screen.hide_cursor(),
-        }
-    }
-
-    fn modes(&self) -> TerminalModes {
-        let screen = self.parser.screen();
-        TerminalModes {
-            alternate_screen: screen.alternate_screen(),
-            application_cursor: screen.application_cursor(),
-            application_keypad: screen.application_keypad(),
-            bracketed_paste: screen.bracketed_paste(),
-            cursor_visible: !screen.hide_cursor(),
-            mouse: match screen.mouse_protocol_mode() {
-                vt100::MouseProtocolMode::None => MouseMode::Disabled,
-                vt100::MouseProtocolMode::Press => MouseMode::Press,
-                vt100::MouseProtocolMode::PressRelease => MouseMode::PressRelease,
-                vt100::MouseProtocolMode::ButtonMotion => MouseMode::ButtonMotion,
-                vt100::MouseProtocolMode::AnyMotion => MouseMode::AnyMotion,
-            },
-        }
-    }
-
-    fn row_wrapped(&self) -> Vec<bool> {
-        let screen = self.parser.screen();
-        let (rows, _) = screen.size();
-        (0..rows.get()).map(|row| screen.row_wrapped(row)).collect()
-    }
-
     pub(crate) fn snapshot(&self) -> Result<ScreenSnapshot> {
-        let screen = self.parser.screen();
-        let (rows, columns) = screen.size();
-        let size = self.size()?;
-        let screen_rows = (0..rows.get())
-            .map(|row| {
-                (0..columns.get())
-                    .map(|column| {
-                        let cell = screen
-                            .cell(row, column)
-                            .expect("vt100 has every visible cell");
-                        let attributes = CellAttributes {
-                            foreground: map_color(cell.fgcolor()),
-                            background: map_color(cell.bgcolor()),
-                            bold: cell.bold(),
-                            dim: cell.dim(),
-                            italic: cell.italic(),
-                            underline: cell.underline(),
-                            inverse: cell.inverse(),
-                        };
-                        cell_snapshot(
-                            cell.contents().to_owned(),
-                            cell.is_wide(),
-                            cell.is_wide_continuation(),
-                            attributes,
-                        )
-                    })
-                    .collect()
-            })
-            .collect();
-        Ok(ScreenSnapshot::new(
-            size,
-            self.cursor(),
-            self.modes(),
-            screen_rows,
-            self.row_wrapped(),
-        ))
+        snapshot_of(self.presented())
+    }
+
+    pub(crate) fn live_snapshot(&self) -> Result<ScreenSnapshot> {
+        snapshot_of(self.parser.screen())
     }
 
     /// Lifecycle state without the cell grid. Unlike `snapshot` this does not
     /// scale with the screen area.
     pub(crate) fn state(&self) -> Result<TerminalState> {
-        Ok(TerminalState::new(
-            self.size()?,
-            self.cursor(),
-            self.modes(),
-            self.row_wrapped(),
-            self.parser.screen().scrollback(),
-        ))
+        state_of(self.presented())
     }
+
+    pub(crate) fn live_state(&self) -> Result<TerminalState> {
+        state_of(self.parser.screen())
+    }
+}
+
+fn screen_size(screen: &vt100::Screen) -> Result<Size> {
+    let (rows, columns) = screen.size();
+    Size::new(columns.get(), rows.get())
+}
+
+fn cursor_of(screen: &vt100::Screen) -> Cursor {
+    let (row, column) = screen.cursor_position();
+    Cursor {
+        row,
+        column,
+        visible: !screen.hide_cursor(),
+    }
+}
+
+fn modes_of(screen: &vt100::Screen) -> TerminalModes {
+    TerminalModes {
+        alternate_screen: screen.alternate_screen(),
+        application_cursor: screen.application_cursor(),
+        application_keypad: screen.application_keypad(),
+        bracketed_paste: screen.bracketed_paste(),
+        cursor_visible: !screen.hide_cursor(),
+        mouse: match screen.mouse_protocol_mode() {
+            vt100::MouseProtocolMode::None => MouseMode::Disabled,
+            vt100::MouseProtocolMode::Press => MouseMode::Press,
+            vt100::MouseProtocolMode::PressRelease => MouseMode::PressRelease,
+            vt100::MouseProtocolMode::ButtonMotion => MouseMode::ButtonMotion,
+            vt100::MouseProtocolMode::AnyMotion => MouseMode::AnyMotion,
+        },
+    }
+}
+
+fn row_wrapped_of(screen: &vt100::Screen) -> Vec<bool> {
+    let (rows, _) = screen.size();
+    (0..rows.get()).map(|row| screen.row_wrapped(row)).collect()
+}
+
+fn state_of(screen: &vt100::Screen) -> Result<TerminalState> {
+    Ok(TerminalState::new(
+        screen_size(screen)?,
+        cursor_of(screen),
+        modes_of(screen),
+        row_wrapped_of(screen),
+        screen.scrollback(),
+    ))
+}
+
+fn snapshot_of(screen: &vt100::Screen) -> Result<ScreenSnapshot> {
+    let (rows, columns) = screen.size();
+    let size = screen_size(screen)?;
+    let screen_rows = (0..rows.get())
+        .map(|row| {
+            (0..columns.get())
+                .map(|column| {
+                    let cell = screen
+                        .cell(row, column)
+                        .expect("vt100 has every visible cell");
+                    let attributes = CellAttributes {
+                        foreground: map_color(cell.fgcolor()),
+                        background: map_color(cell.bgcolor()),
+                        bold: cell.bold(),
+                        dim: cell.dim(),
+                        italic: cell.italic(),
+                        underline: cell.underline(),
+                        inverse: cell.inverse(),
+                    };
+                    cell_snapshot(
+                        cell.contents().to_owned(),
+                        cell.is_wide(),
+                        cell.is_wide_continuation(),
+                        attributes,
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    Ok(ScreenSnapshot::new(
+        size,
+        cursor_of(screen),
+        modes_of(screen),
+        screen_rows,
+        row_wrapped_of(screen),
+    ))
 }
 
 fn nonzero(value: u16) -> NonZeroU16 {
@@ -631,6 +702,148 @@ mod tests {
                 _ => crate::snapshot::Color::Default,
             },
         }
+    }
+
+    const OLD_FRAME: &[u8] = b"\x1b[2J\x1b[Hold-a\r\nold-b";
+    const UPDATE: &[u8] = b"\x1b[?2026h\x1b[2J\x1b[Hnew-a\r\nnew-b\x1b[?2026l";
+    const SIZE: fn() -> Size = || Size::new(12, 3).unwrap();
+
+    fn rows_of(snapshot: &ScreenSnapshot) -> Vec<String> {
+        (0..snapshot.row_count())
+            .map(|row| snapshot.row(row).unwrap_or_default())
+            .collect()
+    }
+
+    fn presented_rows(terminal: &TerminalBackend) -> Vec<String> {
+        rows_of(&terminal.snapshot().unwrap())
+    }
+
+    fn live_rows(terminal: &TerminalBackend) -> Vec<String> {
+        rows_of(&terminal.live_snapshot().unwrap())
+    }
+
+    #[test]
+    fn synchronized_update_is_invisible_at_every_split_of_its_sequences() {
+        let mut stream = OLD_FRAME.to_vec();
+        stream.extend_from_slice(UPDATE);
+        let old = ["old-a", "old-b", ""];
+        let new = ["new-a", "new-b", ""];
+        for split in OLD_FRAME.len()..stream.len() {
+            let mut terminal = TerminalBackend::new(SIZE());
+            terminal.process(&stream[..split]);
+            assert_eq!(presented_rows(&terminal), old, "split at {split}");
+            terminal.process(&stream[split..]);
+            assert_eq!(presented_rows(&terminal), new, "split at {split}");
+            assert!(!terminal.synchronized_update_pending(), "split at {split}");
+        }
+        let mut bytewise = TerminalBackend::new(SIZE());
+        for byte in &stream {
+            bytewise.process(&[*byte]);
+            if bytewise.synchronized_update_pending() {
+                assert_eq!(presented_rows(&bytewise), old);
+            }
+        }
+        assert_eq!(presented_rows(&bytewise), new);
+    }
+
+    #[test]
+    fn live_state_runs_ahead_of_the_presented_update() {
+        let mut terminal = TerminalBackend::new(SIZE());
+        terminal.process(OLD_FRAME);
+        terminal.process(&UPDATE[..UPDATE.len() - b"\x1b[?2026l".len()]);
+        assert!(terminal.synchronized_update_pending());
+        assert_eq!(live_rows(&terminal), ["new-a", "new-b", ""]);
+        assert_eq!(presented_rows(&terminal), ["old-a", "old-b", ""]);
+        assert_eq!(terminal.cursor_position(), (1, 5));
+        assert_eq!(terminal.state().unwrap().cursor.column, 5);
+        terminal.process(b"\x1b[?1h");
+        assert!(terminal.live_state().unwrap().modes.application_cursor);
+        assert!(!terminal.state().unwrap().modes.application_cursor);
+        terminal.process(b"\x1b[?2026l");
+        assert!(terminal.state().unwrap().modes.application_cursor);
+        assert_eq!(presented_rows(&terminal), live_rows(&terminal));
+    }
+
+    #[test]
+    fn synchronized_mode_is_recognised_in_a_combined_private_mode_list() {
+        // Parameters apply in order, so a mode listed before 2026 is already
+        // part of the frame that is held, and one listed after it is not.
+        for (begin, end, cursor_in_held_frame) in [
+            (&b"\x1b[?25;2026h"[..], &b"\x1b[?25;2026l"[..], true),
+            (b"\x1b[?2026;25h", b"\x1b[?2026;25l", false),
+            (b"\x1b[?2026;2026h", b"\x1b[?25;2026;2026l", false),
+        ] {
+            let mut stream = b"\x1b[?25lold".to_vec();
+            stream.extend_from_slice(begin);
+            stream.extend_from_slice(b"new");
+            for split in 0..=stream.len() {
+                let mut terminal = TerminalBackend::new(SIZE());
+                terminal.process(&stream[..split]);
+                terminal.process(&stream[split..]);
+                assert!(terminal.synchronized_update_pending(), "{begin:?} split {split}");
+                assert_eq!(presented_rows(&terminal)[0], "old");
+                assert_eq!(
+                    terminal.state().unwrap().cursor.visible,
+                    cursor_in_held_frame,
+                    "{begin:?} split {split}"
+                );
+                assert_eq!(live_rows(&terminal)[0], "oldnew");
+                terminal.process(end);
+                assert!(!terminal.synchronized_update_pending(), "{end:?} split {split}");
+                assert_eq!(presented_rows(&terminal)[0], "oldnew");
+            }
+        }
+    }
+
+    #[test]
+    fn repeated_begin_keeps_the_first_frame_and_one_end_releases_it() {
+        let mut terminal = TerminalBackend::new(SIZE());
+        terminal.process(b"old\x1b[?2026hone\x1b[?2026htwo");
+        assert_eq!(presented_rows(&terminal)[0], "old");
+        terminal.process(b"\x1b[?2026l");
+        assert!(!terminal.synchronized_update_pending());
+        assert_eq!(presented_rows(&terminal)[0], "oldonetwo");
+        terminal.process(b"\x1b[?2026l");
+        assert_eq!(presented_rows(&terminal)[0], "oldonetwo");
+    }
+
+    #[test]
+    fn only_private_mode_2026_begins_an_update() {
+        for sequence in [
+            &b"\x1b[2026h"[..],
+            b"\x1b[?20260h",
+            b"\x1b[?202h",
+            b"\x1b[?2026$p",
+            b"\x1b[?2026;1h\x1b[?2026l",
+            b"\x1b[>2026h",
+            b"\x1b[?2004h\x1b[?2004l",
+        ] {
+            let mut terminal = TerminalBackend::new(SIZE());
+            terminal.process(sequence);
+            terminal.process(b"x");
+            assert!(!terminal.synchronized_update_pending(), "{sequence:?}");
+            assert_eq!(presented_rows(&terminal), live_rows(&terminal), "{sequence:?}");
+        }
+    }
+
+    #[test]
+    fn releasing_a_pending_update_presents_the_latest_state() {
+        let mut terminal = TerminalBackend::new(SIZE());
+        assert!(!terminal.release_synchronized_update());
+        terminal.process(b"old\x1b[?2026hnew");
+        assert!(terminal.release_synchronized_update());
+        assert!(!terminal.synchronized_update_pending());
+        assert_eq!(presented_rows(&terminal)[0], "oldnew");
+    }
+
+    #[test]
+    fn resizing_during_an_update_resizes_the_presented_screen() {
+        let mut terminal = TerminalBackend::new(SIZE());
+        terminal.process(b"old\x1b[?2026hnew");
+        terminal.resize(Size::new(6, 2).unwrap());
+        assert_eq!(terminal.state().unwrap().size, Size::new(6, 2).unwrap());
+        assert_eq!(presented_rows(&terminal), ["old", ""]);
+        assert_eq!(live_rows(&terminal), ["oldnew", ""]);
     }
 
     #[test]

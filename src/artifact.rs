@@ -20,6 +20,7 @@ pub(crate) struct FailureContext<'a> {
     pub(crate) input: &'a [u8],
     pub(crate) output: &'a [u8],
     pub(crate) screen: &'a ScreenSnapshot,
+    pub(crate) live_screen: Option<&'a ScreenSnapshot>,
     pub(crate) terminal_state: &'a TerminalState,
     pub(crate) status: ExitStatus,
     pub(crate) events: &'a [TraceEvent],
@@ -43,6 +44,7 @@ impl ArtifactWriter {
             input,
             output,
             screen,
+            live_screen,
             terminal_state,
             status,
             events,
@@ -70,6 +72,12 @@ impl ArtifactWriter {
         write(&root.join("input.bin"), input)?;
         write(&root.join("output.bin"), output)?;
         write(&root.join("screen.ptytest"), screen.to_string().as_bytes())?;
+        if let Some(live_screen) = live_screen {
+            write(
+                &root.join("live-screen.ptytest"),
+                live_screen.to_string().as_bytes(),
+            )?;
+        }
         write(
             &root.join("terminal-state.txt"),
             format!("{terminal_state:#?}\n").as_bytes(),

@@ -48,6 +48,13 @@ Inspect it offline with:
 cargo run --locked --bin ptytest-replay -- target/ptytest-failures/<bundle>
 ```
 
+While a program holds a synchronized update open (DEC private mode 2026,
+`CSI ? 2026 h` to `CSI ? 2026 l`), `screen()`, screen waits and snapshots show
+the screen from before the update, then the whole update at once when it
+ends, as kitty, WezTerm, ghostty and iTerm2 do. `live_screen()` and
+`synchronized_update_pending()` expose the in-progress state for diagnosis.
+Programs that never set mode 2026 are unaffected.
+
 Snapshot files update only when `PTYTEST_UPDATE_SNAPSHOTS=1` is set. Text
 diagnostics redact `secret_env` values, while raw input/output files retain
 unredacted captured bytes up to the trace limit; use fake credentials. See

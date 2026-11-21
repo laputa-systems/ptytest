@@ -200,6 +200,13 @@ pub fn replay_failure_bundle_with_options(
                 modeled_events += 1;
                 checkpoint(&mut checkpoints, &terminal, &event, options.checkpoints);
             }
+            "synchronized-update-abandoned" => {
+                if !terminal.release_synchronized_update() {
+                    return Err(invalid_replay(
+                        "synchronized update abandoned without one pending",
+                    ));
+                }
+            }
             "terminal-query" => {
                 validate_query_event(&event, &mut unannounced_replies, &mut announced_replies)?
             }
@@ -443,6 +450,7 @@ fn known_event_kind(kind: &str) -> bool {
             | "terminal-reply"
             | "cleanup-signal"
             | "cleanup-error"
+            | "synchronized-update-abandoned"
     )
 }
 
