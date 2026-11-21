@@ -4,6 +4,15 @@
 `TerminalBackend` in `src/terminal.rs`. `ScreenSnapshot` and `TerminalState`
 expose only state that this backend represents faithfully.
 
+## Synchronized output
+
+`vt100` ignores DEC private mode 2026, so `TerminalBackend` implements it:
+it takes a copy of the screen when `CSI ? 2026 h` is reported as an unhandled
+sequence and presents that copy until `CSI ? 2026 l`. The snapshot and state
+accessors present the copy; the cursor used for terminal replies and the modes
+used for key encoding come from the live screen. Replay uses the same backend.
+See [the API notes](api.md#synchronized-output) for the abandonment rules.
+
 ## Resize and soft-wrap reflow
 
 `vt100::Screen::set_size` preserves the existing row layout when a terminal is

@@ -126,10 +126,31 @@ impl PtyTest {
         Deadline::after(duration)
     }
 
+    /// The screen as a terminal would present it. While the child holds a
+    /// synchronized update open (DEC mode 2026), this is the screen from
+    /// before the update began, and the whole update appears at once when the
+    /// child ends it. The update is abandoned, showing the latest state, when
+    /// the PTY reaches end of file or hangs up, when the harness is hung up,
+    /// and when [`finish`](Self::finish) completes. There is no timeout.
     pub fn screen(&self) -> ScreenSnapshot {
         self.terminal
             .snapshot()
             .expect("non-zero terminal backend size")
+    }
+
+    /// The child's latest screen, including a synchronized update (DEC mode
+    /// 2026) that has begun and not ended. Use [`screen`](Self::screen) for
+    /// assertions; this is for diagnosing a stuck update.
+    pub fn live_screen(&self) -> ScreenSnapshot {
+        self.terminal
+            .live_snapshot()
+            .expect("non-zero terminal backend size")
+    }
+
+    /// Whether the child has begun a synchronized update (`CSI ? 2026 h`)
+    /// that it has not yet ended with `CSI ? 2026 l`.
+    pub fn synchronized_update_pending(&self) -> bool {
+        self.terminal.synchronized_update_pending()
     }
 
     pub fn terminal_state(&self) -> TerminalState {
@@ -247,6 +268,7 @@ impl PtyTest {
     pub fn hangup(&mut self) {
         self.master.take();
         self.closed = true;
+        self.abandon_synchronized_update("hangup");
         self.event("hangup", String::new());
     }
 
@@ -393,6 +415,10 @@ impl PtyTest {
                 .observe_exit()
                 .map_err(|error| self.fail("observe exit", error, None))?
             {
+                if self.terminal.synchronized_update_pending() {
+                    self.read_available(deadline)
+                        .map_err(|error| self.fail("wait for exit", error, None))?;
+                }
                 if let Err(error) = self.peer.finish() {
                     return Err(self.fail("validate terminal output at exit", error, None));
                 }
@@ -409,7 +435,10 @@ impl PtyTest {
 
     pub fn assert_terminal_restored(&mut self, baseline: &TerminalBaseline) -> Result<()> {
         self.drain(self.deadline(Duration::from_millis(1)))?;
-        let state = self.terminal_state();
+        let state = self
+            .terminal
+            .live_state()
+            .expect("non-zero terminal backend size");
         if state.modes != baseline.state().modes {
             let error = PtyTestError::SnapshotMismatch {
                 path: Path::new("terminal-baseline").to_owned(),
@@ -483,7 +512,10 @@ impl PtyTest {
     }
 
     fn cursor_key(&self, final_byte: u8) -> Result<Vec<u8>> {
-        let state = self.terminal_state();
+        let state = self
+            .terminal
+            .live_state()
+            .expect("non-zero terminal backend size");
         if state.modes.application_cursor {
             Ok(vec![0x1b, b'O', final_byte])
         } else {
@@ -569,6 +601,7 @@ impl PtyTest {
                 Err(Errno::AGAIN) => return Ok(()),
                 Err(Errno::IO) => {
                     self.closed = true;
+                    self.abandon_synchronized_update("pty-closed");
                     return Ok(());
                 }
                 Err(error) => {
@@ -613,6 +646,7 @@ impl PtyTest {
             }
             if count == 0 {
                 self.closed = true;
+                self.abandon_synchronized_update("pty-closed");
                 return Ok(());
             }
         }
@@ -749,6 +783,7 @@ impl PtyTest {
         self.observed_exit = status;
         self.reaped = true;
         self.master.take();
+        self.abandon_synchronized_update("cleanup");
         Ok(status)
     }
 
@@ -829,6 +864,10 @@ impl PtyTest {
     ) -> PtyTestError {
         let screen = self.screen();
         let state = self.terminal_state();
+        let live_screen = self
+            .terminal
+            .synchronized_update_pending()
+            .then(|| self.live_screen());
         match self.artifact.write_failure(FailureContext {
             scenario: &self.scenario,
             operation,
@@ -836,6 +875,7 @@ impl PtyTest {
             input: &self.input,
             output: &self.output,
             screen: &screen,
+            live_screen: live_screen.as_ref(),
             terminal_state: &state,
             status: self.observed_exit,
             events: &self.events,
@@ -843,6 +883,12 @@ impl PtyTest {
         }) {
             Ok(path) => attach_artifact(error, path),
             Err(_) => error,
+        }
+    }
+
+    fn abandon_synchronized_update(&mut self, reason: &'static str) {
+        if self.terminal.release_synchronized_update() {
+            self.event("synchronized-update-abandoned", reason.to_owned());
         }
     }
 
