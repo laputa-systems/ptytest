@@ -4,6 +4,8 @@
 
 Build: `cargo build --locked --all-targets` · Test: `make test` · Check: `make lint`.
 
+The roadmap, [docs/roadmap.md](docs/roadmap.md), holds all current and future work; its Status is the resume point.
+
 ## Verification
 
 `make clean` removes the checkout’s ordinary `./target` directory. It refuses a file or symlink at that path.
