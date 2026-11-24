@@ -14,6 +14,8 @@ CI runs Clippy and the test suite on Ubuntu and macOS, with normal and single-th
 
 `make test` runs `cargo test --locked`. `make lint` runs Clippy in check-only mode and does not rewrite files.
 
+For the mutation check, exclude `.work/` from Git before creating scratch, set `TMPDIR` to `.work/tmp`, and run `make mutants-diff BASE=origin/main` from a clean checkout. The check requires Python 3.14 and cargo-mutants 27.1.0.
+
 ## Test authoring
 
 Synchronize on a screen predicate or fixture protocol, not a delay. Tests for elapsed-time behavior should use a controllable application clock or assert a domain event. Keep ordinary non-interactive CLI tests on pipes and application unit tests in their own suites; use this crate for PTY integration and terminal-protocol behavior.
